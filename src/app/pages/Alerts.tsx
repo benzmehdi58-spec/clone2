@@ -75,9 +75,9 @@ export function Alerts() {
                 )}
               />
               
-              <div className="flex flex-1 flex-col md:flex-row p-4 md:p-5 gap-4 items-start md:items-center">
+              <div className="flex flex-1 flex-col md:flex-row p-4 md:p-5 gap-4 items-start md:items-center min-w-0">
                 {/* Icon & Time */}
-                <div className="flex items-center gap-4 min-w-[120px]">
+                <div className="flex items-center gap-4 min-w-[120px] shrink-0">
                   <div className={cn(
                     "p-2 rounded-md",
                     alert.source === "Network" ? "bg-[#2F81F7]/10 text-[#2F81F7]" : "bg-[#D29922]/10 text-[#D29922]"
@@ -105,7 +105,7 @@ export function Alerts() {
                 </div>
 
                 {/* Status & Confidence */}
-                <div className="flex flex-col gap-2 min-w-[140px]">
+                <div className="flex flex-col gap-2 min-w-[140px] shrink-0">
                   <Badge 
                     variant={alert.severity === "critical" ? "critical" : alert.severity === "warning" ? "warning" : "info"}
                     className="w-fit"
@@ -127,7 +127,7 @@ export function Alerts() {
                 </div>
 
                 {/* Actions */}
-                <div className="flex items-center gap-2 mt-4 md:mt-0 w-full md:w-auto">
+                <div className="flex items-center gap-2 mt-4 md:mt-0 w-full md:w-auto shrink-0">
                   <Button 
                     variant="outline" 
                     className="flex-1 md:flex-none"

@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import {
-  Search, Filter, Server, ShieldCheck, ShieldAlert,
+  Search, Filter, Server, ShieldCheck, ShieldAlert, Network,
   X, FileJson, Play, Loader2, ChevronLeft, ChevronRight,
 } from "lucide-react";
 import { Button } from "../components/ui/Button";
@@ -12,6 +12,9 @@ import { COLORS } from "../constants";
 
 const STATUS_OPTIONS = ["all", "anomaly", "normal"] as const;
 type Status = typeof STATUS_OPTIONS[number];
+
+const SOURCE_OPTIONS = ["all", "HDFS", "Network"] as const;
+type Source = typeof SOURCE_OPTIONS[number];
 
 const EXAMPLE_LOG = `081109 203518 143 INFO dfs.DataNode$DataXceiver: Receiving block blk_-1608999687919862906 src: /10.250.19.102:54761 dest: /10.250.19.102:50010
 081109 203518 143 INFO dfs.DataNode$PacketResponder: PacketResponder 2 for block blk_-1608999687919862906 terminating`;
@@ -25,6 +28,7 @@ export function Explorer() {
   const [search, setSearch]       = useState("");
   const [draftSearch, setDraftSearch] = useState("");
   const [status, setStatus]       = useState<Status>("all");
+  const [source, setSource]       = useState<Source>("all");
   const [isLoading, setIsLoading] = useState(true);
   const [selectedLog, setSelectedLog] = useState<any | null>(null);
   const searchTimer               = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -38,12 +42,12 @@ export function Explorer() {
   // ── Fetch logs from backend ───────────────────────────────────────────────
   const load = useCallback(async () => {
     setIsLoading(true);
-    const result = await fetchLogs({ page, limit: 50, search, status });
+    const result = await fetchLogs({ page, limit: 50, search, status, source });
     setLogs(result.logs);
     setTotal(result.total);
     setPages(result.pages);
     setIsLoading(false);
-  }, [page, search, status]);
+  }, [page, search, status, source]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -59,6 +63,12 @@ export function Explorer() {
 
   const handleStatusChange = (s: Status) => {
     setStatus(s);
+    setPage(1);
+    setSelectedLog(null);
+  };
+
+  const handleSourceChange = (s: Source) => {
+    setSource(s);
     setPage(1);
     setSelectedLog(null);
   };
@@ -86,7 +96,7 @@ export function Explorer() {
         <div>
           <h1 className="text-2xl font-semibold text-white">Log Explorer</h1>
           <p className="text-[#717182] text-sm mt-1">
-            Browsing <span className="font-mono text-[#e9ebef]">{total.toLocaleString()}</span> HDFS block sessions · LSTM predictions
+            Browsing <span className="font-mono text-[#e9ebef]">{total.toLocaleString()}</span> HDFS sessions & Network flows
           </p>
         </div>
         <Button onClick={openModal} className="bg-[#2F81F7] hover:bg-[#2F81F7]/90 text-white">
@@ -107,6 +117,25 @@ export function Explorer() {
               placeholder="Search by block ID or log content…"
               className="w-full h-10 bg-[#0D1117] border border-[#30363D] rounded-md pl-10 pr-4 text-sm text-white focus:outline-none focus:border-[#2F81F7] focus:ring-1 focus:ring-[#2F81F7]"
             />
+          </div>
+
+          {/* Source filter */}
+          <div className="flex items-center gap-1 bg-[#0D1117] border border-[#30363D] rounded-md p-1">
+            <Server className="h-3.5 w-3.5 text-[#717182] ml-1" />
+            {SOURCE_OPTIONS.map((s) => (
+              <button
+                key={s}
+                onClick={() => handleSourceChange(s)}
+                className={cn(
+                  "px-3 py-1 rounded text-xs font-medium capitalize transition-colors",
+                  source === s
+                    ? "bg-[#30363D] text-white"
+                    : "text-[#717182] hover:text-white"
+                )}
+              >
+                {s === "all" ? "All Sources" : s}
+              </button>
+            ))}
           </div>
 
           {/* Status filter */}
@@ -178,8 +207,11 @@ export function Explorer() {
                         <td className="px-4 py-3 font-mono text-[#e9ebef] text-xs">{log.id}</td>
                         <td className="px-4 py-3">
                           <Badge variant="outline" className="text-xs gap-1">
-                            <Server className="h-3 w-3" style={{ color: COLORS.amber }} />
-                            HDFS
+                            {log.source === "Network" ? (
+                                <><Network className="h-3 w-3" style={{ color: COLORS.blue }} /> {log.source}</>
+                            ) : (
+                                <><Server className="h-3 w-3" style={{ color: COLORS.amber }} /> {log.source}</>
+                            )}
                           </Badge>
                         </td>
                         <td className="px-4 py-3 font-mono text-xs text-[#717182] max-w-[320px] truncate" title={log.preview}>

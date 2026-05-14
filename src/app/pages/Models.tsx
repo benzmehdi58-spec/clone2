@@ -3,8 +3,9 @@ import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/Card"
 import {
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip,
   AreaChart, Area, CartesianGrid, ReferenceLine, LineChart, Line,
+  PieChart, Pie, Cell, Legend,
 } from "recharts";
-import { ArrowUpRight, ArrowDownRight, Server, Network, Loader2 } from "lucide-react";
+import { ArrowUpRight, ArrowDownRight, Server, Network, Loader2, AlertTriangle, Shield } from "lucide-react";
 import { cn } from "../utils/cn";
 import { fetchModelMetrics } from "../api/agent";
 import { COLORS } from "../constants";
@@ -12,6 +13,8 @@ import { COLORS } from "../constants";
 function fmt(n: number) {
   return n >= 1000 ? `${(n / 1000).toFixed(1)}K` : String(n);
 }
+
+const VERDICT_COLORS = ["#3FB950", "#F85149", "#D29922"];
 
 export function Models() {
   const [activeTab, setActiveTab] = useState<"network" | "system">("system");
@@ -51,7 +54,7 @@ export function Models() {
             activeTab === "network" ? "border-[#2F81F7] text-[#2F81F7]" : "border-transparent text-[#717182] hover:text-[#e9ebef]")}
           onClick={() => setActiveTab("network")}
         >
-          <Network className="h-4 w-4" /> Network Model (CIC-IDS2017)
+          <Network className="h-4 w-4" /> Network Model (CIC-IDS2017) — Live
         </button>
       </div>
 
@@ -59,6 +62,7 @@ export function Models() {
         <div className="flex justify-center py-20"><Loader2 className="h-8 w-8 animate-spin text-[#717182]" /></div>
       ) : (
         <>
+          {/* Metric cards */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             {data.metrics.map((m: any, i: number) => (
               <Card key={i}>
@@ -70,7 +74,7 @@ export function Models() {
                     </div>
                     <div className={cn("flex items-center text-xs font-medium", m.up ? "text-[#3FB950]" : "text-[#F85149]")}>
                       {m.up ? <ArrowUpRight className="h-4 w-4 mr-1" /> : <ArrowDownRight className="h-4 w-4 mr-1" />}
-                      {activeTab === "system" ? "Real data" : m.trend}
+                      Real data
                     </div>
                   </div>
                 </CardContent>
@@ -78,8 +82,97 @@ export function Models() {
             ))}
           </div>
 
+          {/* Network-only extra badges + charts */}
+          {activeTab === "network" && data.zeroDay && (
+            <>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <Card className="border-[#D29922]/40 bg-[#D29922]/5">
+                  <CardContent className="p-5 flex items-center gap-4">
+                    <div className="p-3 rounded-lg bg-[#D29922]/20">
+                      <AlertTriangle className="h-6 w-6 text-[#D29922]" />
+                    </div>
+                    <div>
+                      <p className="text-xs text-[#717182] uppercase tracking-wider">Zero-Day Rate</p>
+                      <p className="text-2xl font-bold font-mono text-[#D29922]">{data.zeroDay.rate}%</p>
+                      <p className="text-xs text-[#717182] mt-0.5">{fmt(data.zeroDay.count)} flagged flows</p>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                <Card className="border-[#2F81F7]/40 bg-[#2F81F7]/5">
+                  <CardContent className="p-5 flex items-center gap-4">
+                    <div className="p-3 rounded-lg bg-[#2F81F7]/20">
+                      <Shield className="h-6 w-6 text-[#2F81F7]" />
+                    </div>
+                    <div>
+                      <p className="text-xs text-[#717182] uppercase tracking-wider">Macro F1 (All Classes)</p>
+                      <p className="text-2xl font-bold font-mono text-[#2F81F7]">{((data.macroF1 ?? 0) * 100).toFixed(1)}%</p>
+                      <p className="text-xs text-[#717182] mt-0.5">Target &gt; 85%</p>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardContent className="p-5 flex items-center gap-4">
+                    <div className="p-3 rounded-lg bg-[#3FB950]/10">
+                      <Network className="h-6 w-6 text-[#3FB950]" />
+                    </div>
+                    <div>
+                      <p className="text-xs text-[#717182] uppercase tracking-wider">Total Flows Evaluated</p>
+                      <p className="text-2xl font-bold font-mono text-white">{fmt(data.totalFlows ?? 0)}</p>
+                      <p className="text-xs text-[#717182] mt-0.5">S1 threshold: {data.s1Threshold}</p>
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <Card>
+                  <CardHeader><CardTitle>Verdict Distribution</CardTitle></CardHeader>
+                  <CardContent>
+                    <div className="h-[260px] w-full">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <PieChart>
+                          <Pie data={data.verdictDist} cx="50%" cy="50%" outerRadius={90}
+                            dataKey="value"
+                            label={({ name, percent }: any) => `${name} ${(percent * 100).toFixed(1)}%`}
+                            labelLine={false}>
+                            {(data.verdictDist ?? []).map((_: any, index: number) => (
+                              <Cell key={`cell-${index}`} fill={VERDICT_COLORS[index % VERDICT_COLORS.length]} />
+                            ))}
+                          </Pie>
+                          <Tooltip
+                            contentStyle={{ backgroundColor: COLORS.surface, borderColor: COLORS.border, color: COLORS.textPrimary }}
+                            formatter={(val: any) => [fmt(Number(val)), ""]} />
+                          <Legend />
+                        </PieChart>
+                      </ResponsiveContainer>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardHeader><CardTitle>Attack Type Breakdown (Stage 2)</CardTitle></CardHeader>
+                  <CardContent>
+                    <div className="h-[260px] w-full">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <BarChart data={data.attackBreakdown ?? []} layout="vertical" margin={{ left: 90, right: 20 }}>
+                          <XAxis type="number" stroke={COLORS.textMuted} fontSize={11} tickLine={false} />
+                          <YAxis dataKey="type" type="category" axisLine={false} tickLine={false}
+                            tick={{ fill: COLORS.textPrimary, fontSize: 11 }} width={85} />
+                          <Tooltip contentStyle={{ backgroundColor: COLORS.surface, borderColor: COLORS.border, color: COLORS.textPrimary }} />
+                          <Bar dataKey="count" fill={COLORS.blue} radius={[0, 4, 4, 0]} barSize={18} />
+                        </BarChart>
+                      </ResponsiveContainer>
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+            </>
+          )}
+
+          {/* Shared: Confusion Matrix + ROC */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            {/* Confusion Matrix */}
             <Card>
               <CardHeader><CardTitle>Confusion Matrix (Binary)</CardTitle></CardHeader>
               <CardContent className="flex flex-col items-center p-6 gap-3">
@@ -111,7 +204,6 @@ export function Models() {
               </CardContent>
             </Card>
 
-            {/* ROC Curve */}
             <Card>
               <CardHeader className="flex flex-row justify-between items-center">
                 <CardTitle>ROC Curve</CardTitle>
@@ -138,8 +230,8 @@ export function Models() {
             </Card>
           </div>
 
+          {/* Shared: Feature Importance + Drift */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            {/* Feature Importance */}
             <Card>
               <CardHeader><CardTitle>Feature Importance</CardTitle></CardHeader>
               <CardContent>
@@ -158,7 +250,6 @@ export function Models() {
               </CardContent>
             </Card>
 
-            {/* Drift Monitor */}
             <Card>
               <CardHeader><CardTitle>Model Drift Monitor (Accuracy)</CardTitle></CardHeader>
               <CardContent>
