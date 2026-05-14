@@ -73,6 +73,20 @@ export const fetchLogs = async (params: LogsParams = {}) => {
   }
 };
 
+// ─── Agent ──────────────────────────────────────────────────────────────────
+
+export async function analyzeAlert(alertId: string, source: string) {
+  return await apiFetch("/api/agent/analyze", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ alert_id: alertId, source })
+  });
+}
+
+export async function getIncidents() {
+  return await apiFetch("/api/incidents");
+}
+
 // ─── Log Analysis (Submit) ────────────────────────────────────────────────────
 
 export const submitLogForAnalysis = async (raw: string, _source: "hdfs" | "network") => {

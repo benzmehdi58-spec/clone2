@@ -27,7 +27,7 @@ except Exception as _net_err:
     _NET_PIPELINE_AVAILABLE = False
     print(f"[WARN] network_pipeline import failed: {_net_err}")
 
-from fastapi import FastAPI, Query, HTTPException
+from fastapi import FastAPI, Query, HTTPException, BackgroundTasks, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
@@ -177,6 +177,9 @@ state: dict = {
     "metrics":      {},    # HDFS model metrics vs ground truth
     "net_pipeline": None,  # ThreeStagePipeline instance
     "net_metrics":  {},    # network smoke-test metrics
+    "net_logs":     [],    # rolling buffer of network predictions
+    "incidents":    {},    # agent-generated incident reports
+    "alert_buffer": [],    # unified buffer of all high-confidence alerts
 }
 
 
@@ -370,6 +373,7 @@ async def lifespan(app: FastAPI):
 # ─── App ──────────────────────────────────────────────────────────────────────
 
 app = FastAPI(title="CyberAI Backend", version="1.0.0", lifespan=lifespan)
+app.state.global_state = state
 
 app.add_middleware(
     CORSMiddleware,
@@ -617,7 +621,7 @@ def get_dashboard():
 
 
 @app.post("/api/analyze")
-def analyze_log(req: AnalyzeRequest):
+def analyze_log(req: AnalyzeRequest, background_tasks: BackgroundTasks, request: Request):
     model = state["model"]
     vocab = state["vocab"]
     if model is None or vocab is None:
@@ -629,13 +633,21 @@ def analyze_log(req: AnalyzeRequest):
 
     label, confidence = predict_session(tokens, model, vocab)
 
-    return {
+    prediction_result = {
         "success":    True,
         "prediction": label,
         "confidence": confidence,
         "tokens":     tokens,
         "message":    f"Analyzed {len(tokens)} log event(s) using LSTM model.",
+        "source":     "HDFS"
     }
+    
+    from agent_router import run_agent
+    if prediction_result["confidence"] > 85.0 and prediction_result["prediction"] == "Anomaly":
+        state["alert_buffer"].append(prediction_result)
+        background_tasks.add_task(run_agent, trigger_payload=prediction_result, app_state=request.app.state)
+
+    return prediction_result
 
 
 @app.get("/api/model/system")
@@ -679,7 +691,7 @@ class NetworkFlowRequest(BaseModel):
 
 
 @app.post("/api/predict/network")
-def predict_network(req: NetworkFlowRequest):
+def predict_network(req: NetworkFlowRequest, background_tasks: BackgroundTasks, request: Request):
     """Run the three-stage pipeline on a batch of network flows."""
     pipe = state["net_pipeline"]
     if pipe is None:
@@ -688,8 +700,20 @@ def predict_network(req: NetworkFlowRequest):
         raise HTTPException(status_code=400, detail="No flows provided")
 
     df = pd.DataFrame(req.flows)
-    results = pipe.predict(df)
-    return results.to_dict(orient="records")
+    results = pipe.predict(df).to_dict(orient="records")
+    
+    state["net_logs"].extend(results)
+    state["net_logs"] = state["net_logs"][-500:]  # keep last 500
+    
+    from agent_router import run_agent
+    for result in results:
+        result["source"] = "Network"
+        if result.get("attack_probability", 0) > 0.85 or result.get("zero_day_flag"):
+            state["alert_buffer"].append(result)
+            background_tasks.add_task(run_agent, trigger_payload=result, app_state=request.app.state)
+            break  # one agent run per batch, not one per flow
+            
+    return results
 
 
 @app.get("/api/model/network")
@@ -744,3 +768,9 @@ def get_network_model_metrics():
         "s1Threshold"     : m["s1_threshold"],
         "sparkline"       : sparkline,
     }
+
+try:
+    from agent_router import router as agent_router
+    app.include_router(agent_router)
+except ImportError:
+    print("[WARN] agent_router not found, skipping agent routes")

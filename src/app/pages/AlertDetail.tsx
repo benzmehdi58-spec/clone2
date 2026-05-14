@@ -1,11 +1,12 @@
 import { useState, useEffect } from "react";
 import { useParams, useNavigate } from "react-router";
-import { ArrowLeft, Download, ShieldAlert, Flag, Activity, AlertTriangle, Loader2 } from "lucide-react";
+import { ArrowLeft, Download, ShieldAlert, Flag, Activity, AlertTriangle, Loader2, BrainCircuit } from "lucide-react";
 import { Button } from "../components/ui/Button";
+import ReactMarkdown from "react-markdown";
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/Card";
 import { Badge } from "../components/ui/Badge";
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Cell, Tooltip } from "recharts";
-import { fetchAlertDetail } from "../api/agent";
+import { fetchAlertDetail, analyzeAlert } from "../api/agent";
 import { COLORS } from "../constants";
 
 export function AlertDetail() {
@@ -13,6 +14,21 @@ export function AlertDetail() {
   const navigate = useNavigate();
   const [data, setData] = useState<any>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [agentLoading, setAgentLoading] = useState(false);
+  const [agentReport, setAgentReport] = useState<string | null>(null);
+
+  const handleAnalyze = async () => {
+    setAgentLoading(true);
+    try {
+      const json = await analyzeAlert(data.id, data.source);
+      setAgentReport(json.report_markdown || "Agent returned an empty report.");
+    } catch (e) {
+      console.error(e);
+      setAgentReport("Failed to load agent report.");
+    } finally {
+      setAgentLoading(false);
+    }
+  };
 
   useEffect(() => {
     const loadData = async () => {
@@ -152,11 +168,26 @@ export function AlertDetail() {
               <h3 className="font-semibold text-white mb-2 flex items-center gap-2">
                 <Activity className="h-4 w-4" style={{ color: COLORS.blue }} /> Model Explanation
               </h3>
-              <p className="text-sm text-[#e9ebef] leading-relaxed" dangerouslySetInnerHTML={{
-                __html: data.explanation.replace(/Flow Bytes\/s \(1\.2M\)/g, '<strong class="text-white">Flow Bytes/s (1.2M)</strong>')
-                                         .replace(/847x above the baseline/g, `<strong class="text-[${COLORS.red}]">847x above the baseline</strong>`)
-                                         .replace(/Fwd Packet Length Mean/g, '<strong class="text-white">Fwd Packet Length Mean</strong>')
-              }} />
+              {agentReport ? (
+                <div className="text-sm text-[#e9ebef] leading-relaxed prose prose-invert prose-p:my-2 prose-h3:text-white prose-h3:font-semibold prose-strong:text-[#F85149]">
+                  <ReactMarkdown>{agentReport}</ReactMarkdown>
+                </div>
+              ) : (
+                <>
+                  <div className="text-sm text-[#e9ebef] leading-relaxed prose prose-invert prose-p:my-2 prose-h3:text-white prose-h3:font-semibold prose-strong:text-[#F85149]">
+                    <ReactMarkdown>{data.explanation}</ReactMarkdown>
+                  </div>
+                  <Button 
+                    variant="outline" 
+                    className="mt-4 w-full border-[#30363D] hover:bg-[#30363D]/50"
+                    onClick={handleAnalyze}
+                    disabled={agentLoading}
+                  >
+                    {agentLoading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <BrainCircuit className="h-4 w-4 mr-2" />}
+                    {agentLoading ? "Analyzing Context..." : "Analyze with Agent"}
+                  </Button>
+                </>
+              )}
             </CardContent>
           </Card>
 

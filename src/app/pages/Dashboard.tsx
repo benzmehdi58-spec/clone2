@@ -8,13 +8,24 @@ import {
 } from "recharts";
 import { ShieldAlert, Server, Network, Activity, Target, BrainCircuit } from "lucide-react";
 import { useNavigate } from "react-router";
-import { fetchDashboardStats } from "../api/agent";
+import { fetchDashboardStats, getIncidents } from "../api/agent";
 import { COLORS } from "../constants";
 
 export function Dashboard() {
   const navigate = useNavigate();
   const [isLoading, setIsLoading] = useState(true);
   const [data, setData] = useState<any>(null);
+  const [incidents, setIncidents] = useState<any[]>([]);
+
+  useEffect(() => {
+    const interval = setInterval(async () => {
+      try {
+        const result = await getIncidents();
+        setIncidents(Object.values(result));
+      } catch (e) {}
+    }, 5000);
+    return () => clearInterval(interval);
+  }, []);
 
   useEffect(() => {
     const loadData = async () => {
@@ -214,6 +225,35 @@ export function Dashboard() {
           </div>
         </CardContent>
       </Card>
+
+      {/* Active Incidents Panel */}
+      {incidents.length > 0 && (
+        <Card className="border-[#F85149]/30">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <BrainCircuit className="h-5 w-5 text-[#F85149]" /> Agent Incident Reports
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {incidents.map((inc: any) => (
+                <div key={inc.id} className="p-4 rounded-lg bg-[#0D1117] border border-[#30363D] hover:border-[#F85149]/50 transition-colors">
+                  <div className="flex justify-between items-start mb-2">
+                    <h4 className="font-semibold text-white">{inc.title}</h4>
+                    <Badge variant={inc.severity === 'critical' ? 'critical' : inc.severity === 'high' ? 'warning' : 'info'}>
+                      {inc.severity?.toUpperCase()}
+                    </Badge>
+                  </div>
+                  <p className="text-xs text-[#717182] font-mono mb-3">{inc.timestamp}</p>
+                  <Button variant="outline" size="sm" className="w-full text-xs" onClick={() => navigate(`/alerts/${inc.correlated_ids?.[0] || inc.id}`)}>
+                    View Full Report
+                  </Button>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Recent Alerts Table */}
       <Card>
