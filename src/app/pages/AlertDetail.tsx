@@ -20,7 +20,7 @@ export function AlertDetail() {
   const handleAnalyze = async () => {
     setAgentLoading(true);
     try {
-      const json = await analyzeAlert(data.id, data.source);
+      const json = await analyzeAlert(data.id, data.source, data);
       setAgentReport(json.report_markdown || "Agent returned an empty report.");
     } catch (e) {
       console.error(e);

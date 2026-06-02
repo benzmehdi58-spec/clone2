@@ -75,11 +75,11 @@ export const fetchLogs = async (params: LogsParams = {}) => {
 
 // ─── Agent ──────────────────────────────────────────────────────────────────
 
-export async function analyzeAlert(alertId: string, source: string) {
+export async function analyzeAlert(alertId: string, source: string, alert?: Record<string, any>) {
   return await apiFetch("/api/agent/analyze", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ alert_id: alertId, source })
+    body: JSON.stringify({ alert_id: alertId, source, ...(alert ? { alert } : {}) })
   });
 }
 

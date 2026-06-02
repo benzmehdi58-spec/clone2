@@ -7,6 +7,98 @@ from fastapi import APIRouter, Request, HTTPException
 
 router = APIRouter()
 
+def _extract_urgency(result: dict) -> str:
+    stage = int(result.get("mitre", {}).get("kill_chain_stage", 0))
+    if stage == 0: return "none"
+    if stage <= 2: return "low"
+    if stage <= 4: return "medium"
+    if stage <= 6: return "high"
+    return "critical"
+
+
+def build_mitre_context(result: dict) -> str:
+    mitre      = result.get("mitre", {})
+    verdict    = result.get("verdict") or result.get("prediction", "UNKNOWN")
+    confidence = float(result.get("confidence", 0.0)) * 100
+    kill_stage = int(mitre.get("kill_chain_stage", 0))
+
+    if verdict == "BENIGN" or kill_stage == 0:
+        return (
+            f"VERDICT: BENIGN\n"
+            f"Confidence: {confidence:.1f}%\n"
+            f"Assessment: Normal traffic — no threat indicators detected."
+        )
+
+    if kill_stage <= 2:
+        urgency      = "LOW"
+        urgency_note = "Early-stage activity. Monitor and log. No immediate containment needed."
+        action_note  = "Enable enhanced logging on affected systems. No blocking action required yet."
+    elif kill_stage <= 4:
+        urgency      = "MEDIUM"
+        urgency_note = "Active attack in progress. Attacker is attempting delivery or exploitation."
+        action_note  = "Isolate affected network segment. Review firewall rules immediately."
+    elif kill_stage <= 6:
+        urgency      = "HIGH"
+        urgency_note = "Possible system compromise. Attacker may have established persistence or C2."
+        action_note  = "Begin incident response. Forensic snapshot of affected systems. Block C2 IPs."
+    else:
+        urgency      = "CRITICAL"
+        urgency_note = "Final impact phase. Data destruction or service disruption is occurring NOW."
+        action_note  = "Activate incident response plan immediately. Executive notification required."
+
+    attack_type  = result.get("attack_type", "unknown") or "unknown"
+    zero_day     = result.get("zero_day_flag", False)
+    attack_label = f"{attack_type.upper()}{' [ZERO-DAY]' if zero_day else ''}"
+    tactic       = mitre.get("tactic",       "Unknown")
+    tactic_id    = mitre.get("tactic_id",    "")
+    technique    = mitre.get("technique",    "Unknown")
+    technique_id = mitre.get("technique_id", "")
+    sub_technique = mitre.get("sub_technique")
+    sub_id        = mitre.get("sub_id")
+    description   = mitre.get("description", "")
+
+    sub_line = f"  Sub-Technique : {sub_technique} ({sub_id})\n" if sub_technique and sub_id else ""
+
+    flow_line = ""
+    if "Flow Bytes/s" in result:
+        protocol   = int(result.get("Protocol",               0))
+        dst_port   = int(result.get("Dst Port",               0))
+        flow_bytes = float(result.get("Flow Bytes/s",         0))
+        fwd_pkts   = int(result.get("Total Fwd Packets",      0))
+        bwd_pkts   = int(result.get("Total Backward Packets", 0))
+        proto_name = {6: "TCP", 17: "UDP", 1: "ICMP"}.get(protocol, str(protocol))
+        flow_line  = (
+            f"\nKEY FLOW FEATURES:\n"
+            f"  Protocol        : {proto_name}\n"
+            f"  Destination Port: {dst_port}\n"
+            f"  Flow Bytes/s    : {flow_bytes:,.0f}\n"
+            f"  Fwd Packets     : {fwd_pkts}  |  Bwd Packets: {bwd_pkts}\n"
+        )
+
+    hdfs_line = ""
+    if "block_id" in result:
+        hdfs_line = (
+            f"\nHDFS CONTEXT:\n"
+            f"  Block ID  : {result.get('block_id', 'unknown')}\n"
+            f"  Log Events: {result.get('n_events', 0)} events in session\n"
+        )
+
+    return (
+        f"VERDICT          : {verdict} — {attack_label}\n"
+        f"Confidence       : {confidence:.1f}%\n"
+        f"Urgency Level    : {urgency}\n"
+        f"\nMITRE ATT&CK INTELLIGENCE:\n"
+        f"  Tactic        : {tactic} ({tactic_id})\n"
+        f"  Technique     : {technique} ({technique_id})\n"
+        f"{sub_line}"
+        f"  Kill Chain    : Stage {kill_stage} — {mitre.get('kill_chain_name', '')}\n"
+        f"  Description   : {description}\n"
+        f"{flow_line}"
+        f"{hdfs_line}"
+        f"\nSITUATION: {urgency_note}\n"
+        f"INITIAL ACTION : {action_note}"
+    )
+
 # ── A. Key Loading ──
 BASE_DIR = Path(__file__).parent.parent
 keys_file = BASE_DIR / "keys.txt"
@@ -51,7 +143,7 @@ MODELS = [
 _rate_limited_until: dict = {}
 
 # ── D. call_llm() ──
-def call_llm(messages, tools=None):
+async def call_llm(messages, tools=None):
     errors = []
     for m in sorted(MODELS, key=lambda x: x["priority"]):
         now = time.time()
@@ -76,8 +168,8 @@ def call_llm(messages, tools=None):
         }
         
         try:
-            with httpx.Client(timeout=30.0) as client:
-                res = client.post(m["url"], json=payload, headers=headers)
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                res = await client.post(m["url"], json=payload, headers=headers)
                 
             if res.status_code == 429:
                 _rate_limited_until[m["name"]] = time.time() + 60
@@ -220,54 +312,39 @@ def run_tool(name: str, inputs: dict, app_state):
         return json.dumps({"error": str(e)})
 
 # ── G. System Prompt ──
-SYSTEM_PROMPT = """
-You are the CyberAI SOC Analyst Agent. You automatically investigate security alerts
-from two detection pipelines and produce actionable incident reports.
+SYSTEM_PROMPT = """You are CyberAI — an expert AI security analyst embedded in a Security Operations Center (SOC).
 
-## Pipeline 1 — HDFS System Logs (BiLSTM)
-- prediction: "Normal" or "Anomaly"
-- confidence: 0.0 to 1.0 (above 0.85 = high confidence)
-- block_id: HDFS block session identifier
-- Key events: PacketResponder Exception SocketTimeoutException = network saturation
-              writeBlock received exception IOException = write failure
-              Served block = normal read
+You receive structured MITRE ATT&CK intelligence briefings from an automated ML detection pipeline that analyzes network flows and system logs.
 
-## Pipeline 2 — Network Intrusion (Three-Stage)
-- Stage 1: attack_probability (threshold > 0.30 triggers Stage 2)
-- Stage 2: attack_type — one of: DoS, DDoS, Web Attack, Bot, PortScan,
-           FTP-Patator, SSH-Patator, Rare Attack
-- Stage 3: zero_day_flag = true means reconstruction_error exceeded 95th
-           percentile threshold — ALWAYS treat as CRITICAL severity
+YOUR JOB:
+Analyze each briefing using your available tools, then produce a concise actionable incident report for a human SOC analyst who needs to act fast.
 
-## Correlation patterns you must check on every alert:
-- DDoS or DoS (Network) + SocketTimeout or BrokenPipe (HDFS) within 60 seconds
-  → Network flood caused infrastructure disruption. Single coordinated attack.
-- PortScan (Network) + HDFS anomaly with unusual block allocation events
-  → Reconnaissance phase. Attacker mapping internal filesystem layout.
-- zero_day_flag true + ANY HDFS anomaly
-  → Novel breach with possible lateral movement. Isolate immediately.
-- FTP-Patator or SSH-Patator (Network) + HDFS write anomalies
-  → Credential attack attempting filesystem access.
+ALWAYS structure your final response in exactly this format:
 
-## Your behavior:
-1. Always call get_recent_alerts(source="ALL") first — never analyze in isolation
-2. Look for temporal overlap — alerts within 60 seconds of each other are likely related
-3. Call get_block_session() for any HDFS anomaly to see the raw event sequence
-4. Call get_flows_by_type() to see the volume and pattern of network attacks
-5. Only call create_incident() when you have enough evidence for a complete report
-6. Never invent data — only use what the tools return
+## Incident Summary
+One paragraph. What happened, what MITRE technique was used, how confident the system is.
 
-## Report format (inside report_markdown):
-### Root cause
-One paragraph explaining what happened and why, referencing specific IDs and timestamps.
+## MITRE ATT&CK Context
+Explain the tactic and technique in plain English. What is the attacker trying to achieve at this kill chain stage?
 
-### Evidence
-- List each piece of evidence with its source pipeline, ID, and confidence score
+## Threat Assessment
+Based on kill chain stage and confidence, how serious is this? What is the likely next step if not contained?
 
-### Remediation
-**Immediate:** actions to take right now (block, isolate, rotate)
-**Investigate:** what to check next (logs, sibling nodes, access records)
-**Monitor:** what threshold or pattern to watch going forward
+## Recommended Actions
+A numbered list of 3-5 specific actionable steps the analyst should take RIGHT NOW. Reference protocol, port, or system type when known.
+
+## Analyst Notes
+Additional context, false positive indicators to rule out, or follow-up investigations.
+
+RULES:
+- Always reference the MITRE technique ID (e.g. T1498.002) in your summary.
+- Always state the kill chain stage number and name.
+- Never say "I cannot determine" — make your best assessment from the data given.
+- Keep total response under 400 words.
+- If verdict is BENIGN respond with one sentence only: "Flow classified as normal — no action required."
+- If [ZERO-DAY] appears in the briefing add a [ZERO-DAY ALERT] header and treat urgency one level higher.
+- Use your tools to check recent alerts for related activity before writing your final report.
+- CRITICAL: You MUST use the `create_incident` tool to submit your final report. Put your markdown report inside the `report_markdown` parameter. Do not output the report as regular chat text.
 """
 
 # ── H. Agent Loop ──
@@ -278,20 +355,28 @@ async def run_agent(trigger_payload: dict, app_state):
     try:
         messages = [
             {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": f"New high-confidence alert triggered:\n{json.dumps(trigger_payload)}"}
+            {"role": "user", "content": build_mitre_context(trigger_payload)}
         ]
         
         has_created_incident = False
         incident_data = None
         
         for _ in range(8):
-            msg = call_llm(messages, tools=TOOLS)
+            msg = await call_llm(messages, tools=TOOLS)
             messages.append(msg)
             
             if msg.get("tool_calls"):
                 for tc in msg["tool_calls"]:
                     name = tc["function"]["name"]
-                    args = json.loads(tc["function"]["arguments"])
+                    try:
+                        args = json.loads(tc["function"]["arguments"])
+                    except (json.JSONDecodeError, KeyError) as e:
+                        messages.append({
+                            "role":    "tool",
+                            "content": f"Tool call failed — invalid JSON arguments: {e}. Please retry with valid JSON.",
+                            "tool_call_id": tc.get("id", "unknown")
+                        })
+                        continue
                     
                     if name == "create_incident" and not has_created_incident:
                         incident_data = args
@@ -313,8 +398,42 @@ async def run_agent(trigger_payload: dict, app_state):
             incident_data["timestamp"] = datetime.datetime.now().isoformat()
             state.setdefault("incidents", {})[inc_id] = incident_data
             
+        incident_was_created = any(
+            tool_call.get("function", {}).get("name") == "create_incident"
+            for message in messages
+            if message.get("role") == "assistant"
+            for tool_call in message.get("tool_calls", [])
+        )
+
+        if not incident_was_created:
+            fallback_incident = {
+                "id":          f"FALLBACK-{int(datetime.datetime.utcnow().timestamp())}",
+                "title":       f"Unresolved Alert — {trigger_payload.get('attack_type', 'unknown').upper()}",
+                "severity":    _extract_urgency(trigger_payload),
+                "status":      "unresolved",
+                "summary":     "Agent loop exhausted without producing a final report. Manual review required.",
+                "raw_payload": trigger_payload,
+                "created_at":  datetime.datetime.utcnow().isoformat(),
+                "mitre":       trigger_payload.get("mitre", {})
+            }
+            app_state.global_state["incidents"][fallback_incident["id"]] = fallback_incident
+            
     except Exception as e:
-        print(f"[AGENT ERROR] {e}")
+        print(f"Agent error: {e}")
+        try:
+            error_incident = {
+                "id":          f"ERR-{int(datetime.datetime.utcnow().timestamp())}",
+                "title":       "Agent Analysis Failed",
+                "severity":    _extract_urgency(trigger_payload),
+                "status":      "error",
+                "error":       str(e),
+                "raw_payload": trigger_payload,
+                "created_at":  datetime.datetime.utcnow().isoformat(),
+                "mitre":       trigger_payload.get("mitre", {})
+            }
+            app_state.global_state["incidents"][error_incident["id"]] = error_incident
+        except Exception as save_err:
+            print(f"Failed to save error incident: {save_err}")
 
 
 # ── I. API Routes ──
@@ -323,65 +442,102 @@ from pydantic import BaseModel
 class AnalyzeManualRequest(BaseModel):
     alert_id: str
     source: str
+    alert: dict = None  # optional: full alert dict can be passed inline
 
 @router.post("/api/agent/analyze")
-def manual_analyze(req: AnalyzeManualRequest, request: Request):
-    # Triggers agent synchronously, returns incident report
+async def manual_analyze(req: AnalyzeManualRequest, request: Request):
+    """Triggers the agent synchronously and returns the incident report."""
     state = request.app.state.global_state
     alert = None
-    
-    # Try to find the alert in buffer
-    for a in state.get("alert_buffer", []):
-        if a.get("block_id") == req.alert_id or a.get("id") == req.alert_id:
-            alert = a
-            break
-            
+
+    # Priority 1: full alert dict passed inline
+    if req.alert:
+        alert = req.alert
+
+    # Priority 2: find in alert_buffer by ID
     if not alert:
-        # Fallback to search in all logs
-        for l in state.get("logs", []):
-            if l.get("block_id") == req.alert_id:
-                alert = l
+        for a in state.get("alert_buffer", []):
+            if a.get("block_id") == req.alert_id or a.get("id") == req.alert_id:
+                alert = a
                 break
-                
+
+    # Priority 3: find in net/hdfs logs
     if not alert:
-        alert = {"id": req.alert_id, "source": req.source, "note": "Manual trigger context not found in buffer"}
-        
+        for log_key in ("net_logs", "hdfs_logs", "logs"):
+            for l in state.get(log_key, []):
+                if l.get("block_id") == req.alert_id or l.get("id") == req.alert_id:
+                    alert = l
+                    break
+            if alert:
+                break
+
+    # Last resort: minimal stub so agent still runs
+    if not alert:
+        alert = {"id": req.alert_id, "source": req.source,
+                 "note": "Manual trigger — full alert context not found in buffer"}
+
     messages = [
         {"role": "system", "content": SYSTEM_PROMPT},
-        {"role": "user", "content": f"Manual investigation requested for alert:\n{json.dumps(alert)}"}
+        {"role": "user",   "content": f"Manual investigation requested:\n{build_mitre_context(alert)}"}
     ]
-    
+
     incident_data = None
-    
+
     try:
         for _ in range(8):
-            msg = call_llm(messages, tools=TOOLS)
+            msg = await call_llm(messages, tools=TOOLS)
             messages.append(msg)
-            
-            if msg.get("tool_calls"):
-                for tc in msg["tool_calls"]:
-                    name = tc["function"]["name"]
+
+            if not msg.get("tool_calls"):
+                # LLM responded with plain text instead of using tools.
+                # Print it so we can debug what the model said.
+                print(f"[AGENT] LLM plain-text response (no tool call):\n{msg.get('content', '')}")
+                # Do NOT break — give the agent another turn to self-correct.
+                # Prompt it explicitly if no tool was called.
+                messages.append({
+                    "role":    "user",
+                    "content": (
+                        "You have not called any tool yet. "
+                        "Please call `get_recent_alerts` first, then `create_incident` to submit your report. "
+                        "Do NOT write the report as plain text."
+                    )
+                })
+                continue
+
+            for tc in msg["tool_calls"]:
+                name = tc["function"]["name"]
+                try:
                     args = json.loads(tc["function"]["arguments"])
-                    
-                    if name == "create_incident" and not incident_data:
-                        incident_data = args
-                        
-                    # Request.app is the app_state structure we need for run_tool
-                    res = run_tool(name, args, request.app.state)
+                except (json.JSONDecodeError, KeyError) as e:
                     messages.append({
-                        "role": "tool",
-                        "tool_call_id": tc["id"],
-                        "content": res
+                        "role":        "tool",
+                        "content":     f"Tool call failed — invalid JSON: {e}. Retry with valid JSON.",
+                        "tool_call_id": tc.get("id", "unknown")
                     })
-            else:
-                break
-                
+                    continue
+
+                if name == "create_incident" and not incident_data:
+                    incident_data = args
+
+                res = run_tool(name, args, request.app.state)
+                messages.append({
+                    "role":         "tool",
+                    "tool_call_id": tc["id"],
+                    "content":      res
+                })
+
+            if incident_data:
+                break  # Report saved — exit loop
+
         if incident_data:
             return incident_data
         else:
+            print("[AGENT] Loop exhausted without create_incident. Full messages:")
+            print(json.dumps(messages, indent=2))
             return {"report_markdown": "Agent completed analysis but did not generate a final report."}
-            
+
     except Exception as e:
+        print(f"[AGENT ERROR] {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/api/incidents")
@@ -396,3 +552,61 @@ def get_incident(incident_id: str, request: Request):
     if not inc:
         raise HTTPException(status_code=404, detail="Incident not found")
     return inc
+
+if __name__ == "__main__":
+
+    # Test 1 — Benign
+    r1 = {
+        "verdict": "BENIGN", "attack_type": None, "confidence": 0.0,
+        "mitre": {"kill_chain_stage": 0, "kill_chain_name": "No Threat",
+                  "tactic": None, "technique": None, "technique_id": None,
+                  "description": "Normal traffic."}
+    }
+    ctx1 = build_mitre_context(r1)
+    assert "BENIGN"         in ctx1
+    assert "Normal traffic" in ctx1
+    print("Test 1 passed - Benign context correct")
+
+    # Test 2 — Critical DDoS
+    r2 = {
+        "verdict": "ATTACK", "attack_type": "ddos", "confidence": 0.97,
+        "zero_day_flag": False, "Flow Bytes/s": 1500000.0,
+        "Dst Port": 53, "Protocol": 17,
+        "Total Fwd Packets": 5, "Total Backward Packets": 200,
+        "mitre": {"tactic": "Impact", "tactic_id": "TA0040",
+                  "technique": "Network Denial of Service", "technique_id": "T1498",
+                  "sub_technique": "Reflection Amplification", "sub_id": "T1498.002",
+                  "kill_chain_stage": 7, "kill_chain_name": "Actions on Objectives",
+                  "description": "Adversary attempts to make network resource unavailable."}
+    }
+    ctx2 = build_mitre_context(r2)
+    assert "CRITICAL" in ctx2
+    assert "T1498"    in ctx2
+    assert "Stage 7"  in ctx2
+    print("Test 2 passed - DDoS CRITICAL context correct")
+
+    # Test 3 — HDFS anomaly
+    r3 = {
+        "prediction": "Anomaly", "confidence": 0.92,
+        "block_id": "blk_-1608999687919862906", "n_events": 14,
+        "mitre": {"tactic": "Impact", "tactic_id": "TA0040",
+                  "technique": "Data Destruction", "technique_id": "T1485",
+                  "kill_chain_stage": 7, "kill_chain_name": "Actions on Objectives",
+                  "severity": "critical",
+                  "description": "High-confidence HDFS anomaly."}
+    }
+    ctx3 = build_mitre_context(r3)
+    assert "blk_-1608999687919862906" in ctx3
+    assert "T1485"                    in ctx3
+    assert "14 events"                in ctx3
+    print("Test 3 passed - HDFS anomaly context correct")
+
+    # Test 4 — urgency ladder
+    assert _extract_urgency({"mitre": {"kill_chain_stage": 0}}) == "none"
+    assert _extract_urgency({"mitre": {"kill_chain_stage": 1}}) == "low"
+    assert _extract_urgency({"mitre": {"kill_chain_stage": 3}}) == "medium"
+    assert _extract_urgency({"mitre": {"kill_chain_stage": 5}}) == "high"
+    assert _extract_urgency({"mitre": {"kill_chain_stage": 7}}) == "critical"
+    print("Test 4 passed - urgency ladder correct")
+
+    print("\nAll tests passed.")

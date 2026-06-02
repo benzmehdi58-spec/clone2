@@ -154,8 +154,8 @@ class ThreeStagePipeline:
         results = pd.DataFrame({
             "verdict"             : ["BENIGN"] * n,
             "attack_probability"  : np.zeros(n, dtype=np.float32),
-            "attack_type"         : ["BENIGN"] * n,
-            "s2_confidence"       : np.zeros(n, dtype=np.float32),
+            "attack_type"         : [None] * n,
+            "confidence"          : np.zeros(n, dtype=np.float32),
             "reconstruction_error": np.zeros(n, dtype=np.float32),
             "zero_day_flag"       : [False] * n,
         })
@@ -174,11 +174,23 @@ class ThreeStagePipeline:
         d_atk       = xgb.DMatrix(X_atk)
         prob_matrix = self.xgb_stage2.predict(d_atk).reshape(-1, len(self.le2.classes_))
         s2_idx      = prob_matrix.argmax(axis=1)
-        s2_names    = self.le2.inverse_transform(s2_idx)
+        raw_names   = self.le2.inverse_transform(s2_idx)
+        
+        ATTACK_MAP = {
+            "Bot":         "bot",
+            "DDoS":        "ddos",
+            "DoS":         "dos",
+            "FTP-Patator": "bruteforce",
+            "PortScan":    "scanning",
+            "Rare Attack": "generic",
+            "SSH-Patator": "bruteforce",
+            "Web Attack":  "exploits"
+        }
+        s2_names    = [ATTACK_MAP.get(name, "generic") for name in raw_names]
         s2_conf     = prob_matrix.max(axis=1)
 
         results.loc[attack_mask, "attack_type"]   = s2_names
-        results.loc[attack_mask, "s2_confidence"] = s2_conf.astype(np.float32)
+        results.loc[attack_mask, "confidence"]    = s2_conf.astype(np.float32)
 
         # ── Stage 3 ───────────────────────────────────────────────────────────
         X_atk_t      = torch.tensor(X_atk, dtype=torch.float32).to(self.device)
@@ -192,9 +204,9 @@ class ThreeStagePipeline:
         # Zero-day overrides Stage 2 label
         zd_global = atk_indices[zero_day]
         results.loc[zd_global, "verdict"]     = "ZERO_DAY"
-        results.loc[zd_global, "attack_type"] = "ZERO_DAY"
+        results.loc[zd_global, "attack_type"] = "generic"
 
-        return results
+        return pd.concat([df_raw.reset_index(drop=True), results], axis=1)
 
     # ── Smoke-test on inference_set.parquet ───────────────────────────────────
 

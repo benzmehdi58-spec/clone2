@@ -27,6 +27,9 @@ except Exception as _net_err:
     _NET_PIPELINE_AVAILABLE = False
     print(f"[WARN] network_pipeline import failed: {_net_err}")
 
+from mitre_mapper import MITREMapper
+mitre_mapper = MITREMapper()
+
 from fastapi import FastAPI, Query, HTTPException, BackgroundTasks, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -435,39 +438,47 @@ def get_logs(
 
 @app.get("/api/alerts")
 def get_alerts(filter: Optional[str] = Query(None)):
-    logs = state["logs"]
-    if not logs:
-        return []
-
-    anomalies = [l for l in logs if l.get("label") == "Anomaly"]
-    
     alerts = []
-    for a in anomalies:
+
+    # ── HDFS alerts (from state["logs"]) ──────────────────────────────────
+    for a in state.get("logs", []):
+        if a.get("label") != "Anomaly":
+            continue
         confidence = a.get("confidence", 0)
-        source = a.get("source", "HDFS")
-        if source == "Network":
-            title = "Network Anomaly Detected"
-            if "Type: " in a.get("preview", ""):
-                try:
-                    t = a["preview"].split("Type: ")[1].split(" |")[0]
-                    if t != "ZERO_DAY" and t != "ATTACK":
-                        title = f"{t} Attack Detected"
-                except Exception:
-                    pass
-        else:
-            title = "HDFS System Anomaly"
-            
         alerts.append({
-            "id": a["block_id"],
-            "time": "Real-time",
-            "source": source,
-            "title": title,
-            "reason": a.get("preview", ""),
-            "severity": "critical" if confidence > 85 else "warning",
+            "id":        a.get("block_id", f"HDFS-{id(a)}"),
+            "time":      "Real-time",
+            "source":    "HDFS",
+            "title":     "HDFS System Anomaly",
+            "reason":    a.get("preview", ""),
+            "severity":  "critical" if confidence > 85 else "warning",
             "confidence": confidence,
-            "reviewed": False
+            "reviewed":  False,
         })
-        
+
+    # ── Network alerts (from state["net_logs"]) ───────────────────────────
+    for r in state.get("net_logs", []):
+        if r.get("verdict") == "BENIGN":
+            continue
+        confidence = float(r.get("confidence", 0))
+        attack_type = r.get("attack_type") or "unknown"
+        is_zero_day = r.get("zero_day_flag", False)
+        title = "Zero-Day Anomaly" if is_zero_day else f"{attack_type.upper()} Attack Detected"
+        mitre = r.get("mitre", {})
+        alerts.append({
+            "id":        r.get("id", f"FLOW-{id(r)}"),
+            "time":      "Real-time",
+            "source":    "Network",
+            "title":     title,
+            "reason":    f"S1 Prob: {r.get('attack_probability', 0):.2f} | Type: {attack_type}",
+            "severity":  "critical" if r.get("verdict") == "ZERO_DAY" or confidence > 85 else "warning",
+            "confidence": confidence,
+            "reviewed":  False,
+            "mitre_technique": mitre.get("technique"),
+            "mitre_id":        mitre.get("technique_id"),
+        })
+
+    # Newest first
     alerts = alerts[::-1]
 
     if filter and filter != "All":
@@ -479,16 +490,37 @@ def get_alerts(filter: Optional[str] = Query(None)):
             alerts = [a for a in alerts if a["source"] == "HDFS"]
         elif filter == "Unreviewed":
             alerts = [a for a in alerts if not a["reviewed"]]
-            
+
     return alerts
 
 
 @app.get("/api/alerts/{alert_id}")
 def get_alert_detail(alert_id: str):
-    logs = state["logs"]
-    target = next((l for l in logs if l.get("block_id") == alert_id), None)
+    target = None
+
+    # 1. Net logs (where predict_network stores flows with MITRE)
+    for r in state.get("net_logs", []):
+        if r.get("id") == alert_id or r.get("block_id") == alert_id:
+            target = r
+            break
+
+    # 2. Alert buffer fallback
+    if not target:
+        for a in state.get("alert_buffer", []):
+            if a.get("id") == alert_id or a.get("block_id") == alert_id:
+                target = a
+                break
+
+    # 3. HDFS logs
+    if not target:
+        for l in state.get("logs", []):
+            if l.get("block_id") == alert_id or l.get("id") == alert_id:
+                target = l
+                break
+
     if not target:
         raise HTTPException(status_code=404, detail="Alert not found")
+
         
     confidence = target.get("confidence", 0)
     source = target.get("source", "HDFS")
@@ -537,19 +569,27 @@ def get_alert_detail(alert_id: str):
     ]
 
     return {
-        "id": alert_id,
-        "title": title,
-        "source": f"{source} Pipeline",
-        "time": "Real-time",
-        "severity": "critical" if confidence > 85 else "warning",
+        "id":         alert_id,
+        "title":      title,
+        "source":     f"{source} Pipeline",
+        "time":       "Real-time",
+        "severity":   "critical" if confidence > 85 else "warning",
         "confidence": confidence,
         "explanation": f"The AI agent flagged this {source} log/flow as anomalous primarily due to unusual patterns detected in the sequence/flow. It scored {confidence}% on the anomaly prediction model. The raw payload showed significant deviations from normal operating baselines.",
-        "shapData": shapData,
-        "features": features,
+        "shapData":   shapData,
+        "features":   features,
         "similarAlerts": [
-            { "date": "Recent", "id": "ALT-SIM-1", "match": "89% Match", "status": "True Positive" },
+            { "date": "Recent",    "id": "ALT-SIM-1", "match": "89% Match", "status": "True Positive" },
             { "date": "Past Week", "id": "ALT-SIM-2", "match": "75% Match", "status": "True Positive" }
-        ]
+        ],
+        # Include raw pipeline fields so the frontend can pass them back to the agent
+        "verdict":     target.get("verdict") or target.get("label", "ATTACK"),
+        "prediction":  target.get("prediction", "Anomaly"),
+        "attack_type": target.get("attack_type"),
+        "zero_day_flag": target.get("zero_day_flag", False),
+        "block_id":    target.get("block_id"),
+        "n_events":    target.get("event_count"),
+        "mitre":       target.get("mitre", {}),
     }
 
 
@@ -642,8 +682,11 @@ def analyze_log(req: AnalyzeRequest, background_tasks: BackgroundTasks, request:
         "source":     "HDFS"
     }
     
+    # Enrich with MITRE data
+    prediction_result = mitre_mapper.enrich_hdfs(prediction_result)
+    
     from agent_router import run_agent
-    if prediction_result["confidence"] > 85.0 and prediction_result["prediction"] == "Anomaly":
+    if prediction_result.get("verdict") != "BENIGN" and prediction_result.get("prediction") != "Normal":
         state["alert_buffer"].append(prediction_result)
         background_tasks.add_task(run_agent, trigger_payload=prediction_result, app_state=request.app.state)
 
@@ -701,19 +744,26 @@ def predict_network(req: NetworkFlowRequest, background_tasks: BackgroundTasks, 
 
     df = pd.DataFrame(req.flows)
     results = pipe.predict(df).to_dict(orient="records")
-    
+    import time as _time
+    for i, r in enumerate(results):
+        r["id"]     = f"FLOW-{int(_time.time() * 1000) + i}"
+        r["source"] = "Network"   # set BEFORE storing in net_logs
+
+    # Enrich batch of results with MITRE data
+    results = mitre_mapper.enrich_batch(results)
+
     state["net_logs"].extend(results)
     state["net_logs"] = state["net_logs"][-500:]  # keep last 500
-    
+
     from agent_router import run_agent
     for result in results:
-        result["source"] = "Network"
-        if result.get("attack_probability", 0) > 0.85 or result.get("zero_day_flag"):
+        if result.get("verdict") != "BENIGN" and result.get("prediction") != "Normal":
             state["alert_buffer"].append(result)
             background_tasks.add_task(run_agent, trigger_payload=result, app_state=request.app.state)
             break  # one agent run per batch, not one per flow
-            
+
     return results
+
 
 
 @app.get("/api/model/network")
