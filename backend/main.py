@@ -53,9 +53,9 @@ except Exception as _net_err:
 from mitre_mapper import MITREMapper
 mitre_mapper = MITREMapper()
 
-from fastapi import FastAPI, Query, HTTPException, BackgroundTasks, Request
+from fastapi import FastAPI, Query, HTTPException, BackgroundTasks, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 import database
 # ─── Paths ──────────────────────────────────────────────────────────────────
 BASE_DIR    = Path(__file__).parent.parent          # project root
@@ -206,6 +206,10 @@ state: dict = {
     "net_logs":     [],    # rolling buffer of network predictions
     "incidents":    {},    # agent-generated incident reports
     "alert_buffer": [],    # unified buffer of all high-confidence alerts
+    "net_simulator": None,
+    "hdfs_simulator": None,
+    "net_stop_event": None,
+    "hdfs_stop_event": None,
 }
 
 
@@ -430,6 +434,15 @@ async def lifespan(app: FastAPI):
         app.state.rag_analyzer = None
         print(f"[RAGAnalyzer] Not available: {e}")
 
+    try:
+        from simulators import NetworkScenarioSimulator, HDFSReplayEngine
+        state["net_simulator"] = NetworkScenarioSimulator()
+        state["hdfs_simulator"] = HDFSReplayEngine(SAMPLES_PATH)
+        state["net_stop_event"] = asyncio.Event()
+        state["hdfs_stop_event"] = asyncio.Event()
+    except Exception as e:
+        print(f"[Simulators] Not available: {e}")
+
     yield
     print("[*] Shutting down.")
 
@@ -446,6 +459,35 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+class ConnectionManager:
+    def __init__(self):
+        self.active_connections: list[WebSocket] = []
+
+    async def connect(self, websocket: WebSocket):
+        await websocket.accept()
+        self.active_connections.append(websocket)
+
+    def disconnect(self, websocket: WebSocket):
+        if websocket in self.active_connections:
+            self.active_connections.remove(websocket)
+
+    async def broadcast(self, message: dict):
+        for connection in self.active_connections:
+            try:
+                await connection.send_json(message)
+            except:
+                pass
+
+manager = ConnectionManager()
+
+@app.websocket("/ws/alerts")
+async def websocket_alerts(websocket: WebSocket):
+    await manager.connect(websocket)
+    try:
+        while True:
+            await websocket.receive_text()
+    except WebSocketDisconnect:
+        manager.disconnect(websocket)
 
 # ─── Request / Response Models ────────────────────────────────────────────────
 
@@ -727,6 +769,7 @@ async def analyze_log(req: AnalyzeRequest, background_tasks: BackgroundTasks, re
         
         database.save_alert(prediction_result)
         state["alert_buffer"].append(prediction_result)
+        asyncio.create_task(manager.broadcast(prediction_result))
         background_tasks.add_task(run_agent, trigger_payload=prediction_result, app_state=request.app.state)
 
     return prediction_result
@@ -768,8 +811,57 @@ def get_system_model_metrics():
 
 # ─── Network pipeline endpoints ────────────────────────────────────────────────────
 
+class NetworkFlowItem(BaseModel):
+    Protocol: float = Field(alias="Protocol")
+    Flow_Duration: float = Field(alias="Flow Duration")
+    Total_Fwd_Packets: float = Field(alias="Total Fwd Packets")
+    Fwd_Packets_Length_Total: float = Field(alias="Fwd Packets Length Total")
+    Fwd_Packet_Length_Max: float = Field(alias="Fwd Packet Length Max")
+    Fwd_Packet_Length_Min: float = Field(alias="Fwd Packet Length Min")
+    Fwd_Packet_Length_Mean: float = Field(alias="Fwd Packet Length Mean")
+    Bwd_Packet_Length_Max: float = Field(alias="Bwd Packet Length Max")
+    Bwd_Packet_Length_Min: float = Field(alias="Bwd Packet Length Min")
+    Flow_Bytes_per_s: float = Field(alias="Flow Bytes/s")
+    Flow_Packets_per_s: float = Field(alias="Flow Packets/s")
+    Flow_IAT_Mean: float = Field(alias="Flow IAT Mean")
+    Flow_IAT_Std: float = Field(alias="Flow IAT Std")
+    Flow_IAT_Max: float = Field(alias="Flow IAT Max")
+    Flow_IAT_Min: float = Field(alias="Flow IAT Min")
+    Fwd_IAT_Mean: float = Field(alias="Fwd IAT Mean")
+    Fwd_IAT_Std: float = Field(alias="Fwd IAT Std")
+    Fwd_IAT_Min: float = Field(alias="Fwd IAT Min")
+    Bwd_IAT_Total: float = Field(alias="Bwd IAT Total")
+    Bwd_IAT_Mean: float = Field(alias="Bwd IAT Mean")
+    Bwd_IAT_Std: float = Field(alias="Bwd IAT Std")
+    Bwd_IAT_Max: float = Field(alias="Bwd IAT Max")
+    Bwd_IAT_Min: float = Field(alias="Bwd IAT Min")
+    Fwd_PSH_Flags: float = Field(alias="Fwd PSH Flags")
+    Fwd_URG_Flags: float = Field(alias="Fwd URG Flags")
+    Fwd_Header_Length: float = Field(alias="Fwd Header Length")
+    Bwd_Header_Length: float = Field(alias="Bwd Header Length")
+    Bwd_Packets_per_s: float = Field(alias="Bwd Packets/s")
+    Packet_Length_Min: float = Field(alias="Packet Length Min")
+    Packet_Length_Max: float = Field(alias="Packet Length Max")
+    Packet_Length_Mean: float = Field(alias="Packet Length Mean")
+    Packet_Length_Variance: float = Field(alias="Packet Length Variance")
+    FIN_Flag_Count: float = Field(alias="FIN Flag Count")
+    RST_Flag_Count: float = Field(alias="RST Flag Count")
+    PSH_Flag_Count: float = Field(alias="PSH Flag Count")
+    ACK_Flag_Count: float = Field(alias="ACK Flag Count")
+    URG_Flag_Count: float = Field(alias="URG Flag Count")
+    Down_Up_Ratio: float = Field(alias="Down/Up Ratio")
+    Init_Fwd_Win_Bytes: float = Field(alias="Init Fwd Win Bytes")
+    Init_Bwd_Win_Bytes: float = Field(alias="Init Bwd Win Bytes")
+    Fwd_Act_Data_Packets: float = Field(alias="Fwd Act Data Packets")
+    Fwd_Seg_Size_Min: float = Field(alias="Fwd Seg Size Min")
+    Active_Mean: float = Field(alias="Active Mean")
+    Active_Std: float = Field(alias="Active Std")
+    Active_Max: float = Field(alias="Active Max")
+    Active_Min: float = Field(alias="Active Min")
+    Idle_Std: float = Field(alias="Idle Std")
+
 class NetworkFlowRequest(BaseModel):
-    flows: list[dict]   # list of flow dicts (column → value)
+    flows: list[NetworkFlowItem]
 
 
 @app.post("/api/predict/network")
@@ -781,12 +873,19 @@ async def predict_network(req: NetworkFlowRequest, background_tasks: BackgroundT
     if not req.flows:
         raise HTTPException(status_code=400, detail="No flows provided")
 
-    df = pd.DataFrame(req.flows)
+    df = pd.DataFrame([f.model_dump(by_alias=True) for f in req.flows])
     results = pipe.predict(df).to_dict(orient="records")
     import time as _time
     for i, r in enumerate(results):
         r["id"]     = f"FLOW-{int(_time.time() * 1000) + i}"
         r["source"] = "Network"   # set BEFORE storing in net_logs
+        
+        # Add missing fields expected by the UI
+        r["block_id"] = r["id"]
+        r["label"] = "Anomaly" if r.get("verdict") != "BENIGN" else "Normal"
+        r["preview"] = f"Network Flow | Type: {r.get('attack_type')}"
+        r["event_count"] = 1
+        r["time"] = "Real-time"
 
     # Enrich batch of results with MITRE data
     results = mitre_mapper.enrich_batch(results)
@@ -800,6 +899,7 @@ async def predict_network(req: NetworkFlowRequest, background_tasks: BackgroundT
 
     state["net_logs"].extend(results)
     state["net_logs"] = state["net_logs"][-500:]  # keep last 500
+    state["logs"].extend(results)  # Add to unified logs for the Explorer page
 
     has_triggered_agent = False
     from agent_router import run_agent
@@ -816,13 +916,114 @@ async def predict_network(req: NetworkFlowRequest, background_tasks: BackgroundT
             result["reason"] = f"S1 Prob: {result.get('attack_probability', 0):.2f} | Type: {attack_type}"
             
             database.save_alert(result)
+            state["alert_buffer"].append(result)
+            asyncio.create_task(manager.broadcast(result))
             
             if not has_triggered_agent:
-                state["alert_buffer"].append(result)
                 background_tasks.add_task(run_agent, trigger_payload=result, app_state=request.app.state)
                 has_triggered_agent = True
 
     return results
+
+
+
+# ─── Alerts Clear Endpoint ───────────────────────────────────────────────────
+
+@app.delete("/api/alerts/clear")
+def clear_alerts():
+    database.clear_alerts()
+    state["alert_buffer"].clear()
+    return {"status": "ok", "message": "Alerts cleared"}
+
+# ─── Simulation Endpoints ────────────────────────────────────────────────────
+
+class NetworkSimRequest(BaseModel):
+    scenario: str
+    flows_per_second: float = 1.0
+
+@app.post("/api/simulate/network/start")
+async def start_network_sim(req: NetworkSimRequest, background_tasks: BackgroundTasks):
+    sim = state.get("net_simulator")
+    if not sim:
+        raise HTTPException(status_code=503, detail="Simulator not available")
+    
+    if sim.active:
+        return {"status": "already running"}
+        
+    state["net_stop_event"].clear()
+    
+    async def network_callback(flow: dict):
+        import httpx
+        async with httpx.AsyncClient() as client:
+            try:
+                await client.post("http://localhost:8000/api/predict/network", json={"flows": [flow]})
+            except Exception as e:
+                print(f"[Sim] Error sending flow: {e}")
+
+    background_tasks.add_task(sim.run_scenario, req.scenario, network_callback, state["net_stop_event"], req.flows_per_second)
+    return {"status": "started", "scenario": req.scenario}
+
+@app.post("/api/simulate/network/stop")
+async def stop_network_sim():
+    if state.get("net_stop_event"):
+        state["net_stop_event"].set()
+    return {"status": "stopped"}
+
+@app.get("/api/simulate/network/status")
+async def network_sim_status():
+    sim = state.get("net_simulator")
+    if sim:
+        return await sim.get_status()
+    return {"active": False}
+
+class HdfsSimRequest(BaseModel):
+    delay_seconds: float = 2.0
+
+@app.post("/api/simulate/hdfs/start")
+async def start_hdfs_sim(req: HdfsSimRequest, background_tasks: BackgroundTasks):
+    sim = state.get("hdfs_simulator")
+    if not sim:
+        raise HTTPException(status_code=503, detail="Simulator not available")
+        
+    if sim.active:
+        return {"status": "already running"}
+        
+    sim.delay_seconds = req.delay_seconds
+    state["hdfs_stop_event"].clear()
+    
+    async def hdfs_callback(raw_log: str):
+        import httpx
+        async with httpx.AsyncClient() as client:
+            try:
+                await client.post("http://localhost:8000/api/analyze", json={"raw_log": raw_log})
+            except Exception as e:
+                print(f"[Sim] Error sending log: {e}")
+
+    background_tasks.add_task(sim.start, hdfs_callback, state["hdfs_stop_event"])
+    return {"status": "started"}
+
+@app.post("/api/simulate/hdfs/stop")
+async def stop_hdfs_sim():
+    if state.get("hdfs_stop_event"):
+        state["hdfs_stop_event"].set()
+    return {"status": "stopped"}
+
+@app.get("/api/simulate/hdfs/status")
+async def hdfs_sim_status():
+    sim = state.get("hdfs_simulator")
+    if sim:
+        return await sim.get_status()
+    return {"active": False}
+
+@app.get("/api/simulate/status/all")
+async def get_all_sim_status():
+    net_sim = state.get("net_simulator")
+    hdfs_sim = state.get("hdfs_simulator")
+    
+    return {
+        "network": await net_sim.get_status() if net_sim else {"active": False},
+        "hdfs": await hdfs_sim.get_status() if hdfs_sim else {"active": False}
+    }
 
 
 

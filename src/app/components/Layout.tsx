@@ -7,7 +7,8 @@ import {
   Settings, 
   ChevronLeft,
   ChevronRight,
-  ShieldAlert
+  ShieldAlert,
+  Play
 } from "lucide-react";
 import { useState } from "react";
 import { cn } from "../utils/cn";
@@ -21,6 +22,7 @@ export function Layout() {
     { name: "Alerts", path: "/alerts", icon: Bell, badge: 3 },
     { name: "Explorer", path: "/explorer", icon: Search },
     { name: "Models", path: "/models", icon: BrainCircuit },
+    { name: "Simulation", path: "/simulation", icon: Play },
     { name: "Settings", path: "/settings", icon: Settings },
   ];
 

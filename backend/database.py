@@ -94,6 +94,7 @@ def get_alerts(filter_str: Optional[str] = None) -> List[Dict[str, Any]]:
     alerts = []
     for row in rows:
         a = dict(row)
+        a["time"] = a["timestamp"]
         a["reviewed"] = bool(a["reviewed"])
         if a["raw_payload"]:
             try:
@@ -136,6 +137,13 @@ def get_alert_by_id(alert_id: str) -> Optional[Dict[str, Any]]:
         except:
             pass
     return a
+
+def clear_alerts():
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM alerts")
+    conn.commit()
+    conn.close()
 
 def save_incident(incident_dict: Dict[str, Any]):
     conn = get_db_connection()

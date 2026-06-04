@@ -6,6 +6,7 @@ import { AlertDetail } from "./pages/AlertDetail";
 import { Explorer } from "./pages/Explorer";
 import { Models } from "./pages/Models";
 import { Settings } from "./pages/Settings";
+import { Simulation } from "./pages/Simulation";
 
 export const router = createBrowserRouter([
   {
@@ -17,6 +18,7 @@ export const router = createBrowserRouter([
       { path: "alerts/:id", Component: AlertDetail },
       { path: "explorer", Component: Explorer },
       { path: "models", Component: Models },
+      { path: "simulation", Component: Simulation },
       { path: "settings", Component: Settings },
     ],
   },

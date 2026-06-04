@@ -145,14 +145,23 @@ Synthesize the above into a vulnerability analysis JSON report."""
         response = self.client.messages.create(
             model      = "claude-3-5-sonnet-20240620", # updated model string to standard claude-3.5
             max_tokens = 1024,
+            timeout    = 30.0,
             system     = RAG_SYSTEM_PROMPT,
             messages   = [{"role": "user", "content": user_msg}]
         )
 
         raw_text = response.content[0].text.strip()
-        raw_text = raw_text.replace("```json", "").replace("```", "").strip()
 
-        result = json.loads(raw_text)
+        import re
+        match = re.search(r'\{.*\}', raw_text, re.DOTALL)
+        if match:
+            try:
+                result = json.loads(match.group(0))
+            except json.JSONDecodeError:
+                result = self._empty("Failed to parse JSON response", start_ms)
+        else:
+            result = self._empty("No JSON object found in response", start_ms)
+
         return result
 
     def _empty(self, summary: str, start_ms: int) -> dict:
