@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Server, Network, ShieldAlert, CheckCircle2, Loader2 } from "lucide-react";
+import { Server, Network, ShieldAlert, CheckCircle2, Loader2, Bug } from "lucide-react";
 import { Badge } from "../components/ui/Badge";
 import { Button } from "../components/ui/Button";
 import { useNavigate } from "react-router";
@@ -7,7 +7,7 @@ import { cn } from "../utils/cn";
 import { fetchAlerts } from "../api/agent";
 import { COLORS } from "../constants";
 
-const filters = ["All", "Critical", "Network", "System", "Unreviewed"];
+const filters = ["All", "Critical", "Network", "System", "Honeypot", "Unreviewed"];
 
 export function Alerts() {
   const [activeFilter, setActiveFilter] = useState("All");
@@ -80,9 +80,11 @@ export function Alerts() {
                 <div className="flex items-center gap-4 min-w-[120px] shrink-0">
                   <div className={cn(
                     "p-2 rounded-md",
-                    alert.source === "Network" ? "bg-[#2F81F7]/10 text-[#2F81F7]" : "bg-[#D29922]/10 text-[#D29922]"
+                    alert.source === "Network" ? "bg-[#2F81F7]/10 text-[#2F81F7]" : 
+                    alert.source === "Honeypot" ? "bg-[#8957E5]/10 text-[#8957E5]" : "bg-[#D29922]/10 text-[#D29922]"
                   )}>
-                    {alert.source === "Network" ? <Network className="h-5 w-5" /> : <Server className="h-5 w-5" />}
+                    {alert.source === "Network" ? <Network className="h-5 w-5" /> : 
+                     alert.source === "Honeypot" ? <Bug className="h-5 w-5" /> : <Server className="h-5 w-5" />}
                   </div>
                   <div className="flex flex-col">
                     <span className="text-sm font-mono text-[#e9ebef]">{alert.time}</span>

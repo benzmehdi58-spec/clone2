@@ -61,3 +61,7 @@ desktop.ini
 .env
 .env.*
 !.env.example
+keys.txt
+backend/cyberai.db
+dash*.json
+cyberai_detailed_report.md

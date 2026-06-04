@@ -31,10 +31,12 @@ export function Dashboard() {
     const loadData = async () => {
       const result = await fetchDashboardStats();
       setData(result);
-      setIsLoading(false);
+      if (isLoading) setIsLoading(false);
     };
-    loadData();
-  }, []);
+    loadData(); // initial load
+    const interval = setInterval(loadData, 5000); // refresh every 5s
+    return () => clearInterval(interval);
+  }, [isLoading]);
 
   if (isLoading || !data) {
     return (

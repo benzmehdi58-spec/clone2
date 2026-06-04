@@ -29,7 +29,11 @@ export function Models() {
     setIsLoading(false);
   }, [activeTab]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    load();
+    const interval = setInterval(load, 5000);
+    return () => clearInterval(interval);
+  }, [load]);
 
   const accent = activeTab === "network" ? COLORS.blue : COLORS.amber;
   const cm = data?.confusionMatrix ?? { TP: 0, TN: 0, FP: 0, FN: 0 };

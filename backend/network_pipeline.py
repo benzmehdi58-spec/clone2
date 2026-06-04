@@ -24,12 +24,13 @@ import pandas as pd
 import torch
 import torch.nn as nn
 import xgboost as xgb
+import shap
 from sklearn.metrics import roc_auc_score, f1_score
 
 warnings.filterwarnings("ignore")
 
 # ── Default paths ────────────────────────────────────────────────────────────
-ARTIFACTS_DIR = Path(__file__).parent / "artifacts" / "network"
+ARTIFACTS_DIR = Path(__file__).parent.parent / "network_logs_models"
 
 # Stage 1 threshold from notebook precision-recall curve
 OPTIMAL_S1_THRESHOLD: float = 0.30
@@ -158,6 +159,7 @@ class ThreeStagePipeline:
             "confidence"          : np.zeros(n, dtype=np.float32),
             "reconstruction_error": np.zeros(n, dtype=np.float32),
             "zero_day_flag"       : [False] * n,
+            "shap_data"           : [None] * n,
         })
 
         # ── Stage 1 ───────────────────────────────────────────────────────────
@@ -205,6 +207,43 @@ class ThreeStagePipeline:
         zd_global = atk_indices[zero_day]
         results.loc[zd_global, "verdict"]     = "ZERO_DAY"
         results.loc[zd_global, "attack_type"] = "generic"
+
+        # ── XAI: SHAP values ──────────────────────────────────────────────────
+        try:
+            explainer = shap.TreeExplainer(self.lgb_model)
+            calc_n = min(n, 2000)
+            shap_values = explainer.shap_values(X[:calc_n])
+            # shap_values could be a list for multiclass, or array for binary.
+            # LightGBM binary gives array of shape (n_samples, n_features) or list of 2.
+            if isinstance(shap_values, list):
+                shap_vals = shap_values[1]  # take positive class
+            else:
+                shap_vals = shap_values
+            
+            shap_data_list = []
+            for i in range(calc_n):
+                row_shaps = shap_vals[i]
+                top_indices = np.argsort(np.abs(row_shaps))[-4:][::-1] # top 4 by magnitude
+                
+                row_shap_data = []
+                for idx in top_indices:
+                    val = float(row_shaps[idx])
+                    feat_name = self.feature_cols[idx]
+                    raw_val = float(df_raw.iloc[i][feat_name]) if feat_name in df_raw.columns else 0.0
+                    row_shap_data.append({
+                        "feature": feat_name,
+                        "value": val,
+                        "raw": f"{raw_val:.4f}",
+                        "type": "positive" if val > 0 else "negative"
+                    })
+                shap_data_list.append(row_shap_data)
+            
+            for i in range(calc_n, n):
+                shap_data_list.append(None)
+                
+            results["shap_data"] = shap_data_list
+        except Exception as e:
+            print(f"[NET] SHAP computation failed: {e}")
 
         return pd.concat([df_raw.reset_index(drop=True), results], axis=1)
 
@@ -346,11 +385,13 @@ class ThreeStagePipeline:
                 "block_id": f"FLOW-{i+100000}", # unique ID
                 "source": "Network",
                 "preview": preview,
-                "raw": "Network Flow Record\\n" + "\\n".join([f"{k}: {v}" for k, v in infer_df.iloc[i][self.feature_cols[:15]].to_dict().items()]) + "\\n...",
+                "raw": "Network Flow Record\n" + "\n".join([f"{k}: {v}" for k, v in infer_df.iloc[i][self.feature_cols[:15]].to_dict().items()]) + "\n...",
                 "label": "Normal" if pred["verdict"] == "BENIGN" else "Anomaly",
                 "confidence": round(float(pred["attack_probability"] * 100 if pred["verdict"] != "BENIGN" else (1 - pred["attack_probability"]) * 100), 1),
                 "truth": "Normal" if y_b_true[i] == 0 else "Anomaly",
-                "event_count": 1 # A flow is a single event record
+                "event_count": 1, # A flow is a single event record
+                "verdict": pred["verdict"],
+                "attack_type": pred["attack_type"]
             })
             
         metrics["logs_sample"] = logs_sample

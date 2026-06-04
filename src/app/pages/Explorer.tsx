@@ -89,6 +89,13 @@ export function Explorer() {
     setRawLog("");
   };
 
+  const closeModal = () => {
+    setIsModalOpen(false);
+    if (submitResult) {
+      load(); // Reload logs if a log was analyzed
+    }
+  };
+
   return (
     <div className="flex h-full flex-col gap-4 max-w-7xl mx-auto overflow-hidden">
       {/* Header */}
@@ -331,7 +338,7 @@ export function Explorer() {
           <div className="bg-[#161B22] border border-[#30363D] rounded-lg shadow-2xl w-full max-w-2xl flex flex-col overflow-hidden">
             <div className="flex items-center justify-between p-4 border-b border-[#30363D]">
               <h2 className="text-lg font-semibold text-white">Submit Log for Analysis</h2>
-              <Button variant="ghost" size="icon" onClick={() => setIsModalOpen(false)}>
+              <Button variant="ghost" size="icon" onClick={closeModal}>
                 <X className="h-5 w-5" />
               </Button>
             </div>
@@ -373,7 +380,7 @@ export function Explorer() {
               )}
             </div>
             <div className="p-4 border-t border-[#30363D] flex justify-end gap-3 bg-[#0D1117]/50">
-              <Button variant="ghost" onClick={() => setIsModalOpen(false)}>Cancel</Button>
+              <Button variant="ghost" onClick={closeModal}>Cancel</Button>
               <Button
                 className="bg-[#2F81F7] hover:bg-[#2F81F7]/90 text-white"
                 onClick={handleSubmit}

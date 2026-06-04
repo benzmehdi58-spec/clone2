@@ -4,6 +4,12 @@ import time
 import httpx
 from pathlib import Path
 from fastapi import APIRouter, Request, HTTPException
+import database
+
+try:
+    from rag_manager import rag_manager
+except ImportError:
+    rag_manager = None
 
 router = APIRouter()
 
@@ -19,7 +25,7 @@ def _extract_urgency(result: dict) -> str:
 def build_mitre_context(result: dict) -> str:
     mitre      = result.get("mitre", {})
     verdict    = result.get("verdict") or result.get("prediction", "UNKNOWN")
-    confidence = float(result.get("confidence", 0.0)) * 100
+    confidence = float(result.get("confidence", 0.0))
     kill_stage = int(mitre.get("kill_chain_stage", 0))
 
     if verdict == "BENIGN" or kill_stage == 0:
@@ -83,6 +89,22 @@ def build_mitre_context(result: dict) -> str:
             f"  Log Events: {result.get('n_events', 0)} events in session\n"
         )
 
+    vuln_line = ""
+    vuln = result.get("vulnerability_analysis", {})
+    if vuln and vuln.get("cve_ids"):
+        cve_list  = ", ".join(vuln["cve_ids"][:5])
+        cvss      = vuln.get("cvss_max", 0.0)
+        top_fix   = vuln.get("remediation_steps", ["No specific remediation found"])[0]
+        vuln_line = (
+            f"\nVULNERABILITY INTELLIGENCE:\n"
+            f"  CVEs          : {cve_list}\n"
+            f"  Max CVSS      : {cvss}\n"
+            f"  Top Remediation: {top_fix}\n"
+            f"  Summary       : {vuln.get('summary', '')[:200]}\n"
+        )
+    elif vuln and vuln.get("summary"):
+        vuln_line = f"\nVULNERABILITY INTELLIGENCE:\n  {vuln['summary']}\n"
+
     return (
         f"VERDICT          : {verdict} — {attack_label}\n"
         f"Confidence       : {confidence:.1f}%\n"
@@ -95,6 +117,7 @@ def build_mitre_context(result: dict) -> str:
         f"  Description   : {description}\n"
         f"{flow_line}"
         f"{hdfs_line}"
+        f"{vuln_line}"
         f"\nSITUATION: {urgency_note}\n"
         f"INITIAL ACTION : {action_note}"
     )
@@ -134,7 +157,7 @@ MODELS = [
         "name": "cerebras",
         "url": "https://api.cerebras.ai/v1/chat/completions",
         "key_name": "CEREBRAS_API_KEY",
-        "model": "llama-3.3-70b",
+        "model": "llama3.1-70b",
         "priority": 3
     },
 ]
@@ -353,9 +376,11 @@ import datetime
 
 async def run_agent(trigger_payload: dict, app_state):
     try:
+        mitre_context = build_mitre_context(trigger_payload)
+        
         messages = [
             {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": build_mitre_context(trigger_payload)}
+            {"role": "user", "content": mitre_context}
         ]
         
         has_created_incident = False
@@ -396,6 +421,8 @@ async def run_agent(trigger_payload: dict, app_state):
             inc_id = f"INC-{int(time.time())}"
             incident_data["id"] = inc_id
             incident_data["timestamp"] = datetime.datetime.now().isoformat()
+            
+            database.save_incident(incident_data)
             state.setdefault("incidents", {})[inc_id] = incident_data
             
         incident_was_created = any(
@@ -416,6 +443,7 @@ async def run_agent(trigger_payload: dict, app_state):
                 "created_at":  datetime.datetime.utcnow().isoformat(),
                 "mitre":       trigger_payload.get("mitre", {})
             }
+            database.save_incident(fallback_incident)
             app_state.global_state["incidents"][fallback_incident["id"]] = fallback_incident
             
     except Exception as e:
@@ -431,6 +459,7 @@ async def run_agent(trigger_payload: dict, app_state):
                 "created_at":  datetime.datetime.utcnow().isoformat(),
                 "mitre":       trigger_payload.get("mitre", {})
             }
+            database.save_incident(error_incident)
             app_state.global_state["incidents"][error_incident["id"]] = error_incident
         except Exception as save_err:
             print(f"Failed to save error incident: {save_err}")
@@ -476,9 +505,29 @@ async def manual_analyze(req: AnalyzeManualRequest, request: Request):
         alert = {"id": req.alert_id, "source": req.source,
                  "note": "Manual trigger — full alert context not found in buffer"}
 
+    # Ensure MITRE and RAG context are fully populated for manual triggers
+    if not alert.get("mitre"):
+        from mitre_mapper import MITREMapper
+        mapper = MITREMapper()
+        if "label" in alert and "prediction" not in alert:
+            alert["prediction"] = alert["label"]
+        if "prediction" in alert and "verdict" not in alert:
+            alert["verdict"] = alert["prediction"]
+        
+        if alert.get("source") == "Network":
+            alert = mapper.enrich(alert, alert)
+        else:
+            alert = mapper.enrich_hdfs(alert)
+
+    if "vulnerability_analysis" not in alert and getattr(request.app.state, "rag_analyzer", None):
+        import asyncio
+        alert = await asyncio.to_thread(request.app.state.rag_analyzer.analyze, alert)
+
+    mitre_context = build_mitre_context(alert)
+
     messages = [
         {"role": "system", "content": SYSTEM_PROMPT},
-        {"role": "user",   "content": f"Manual investigation requested:\n{build_mitre_context(alert)}"}
+        {"role": "user",   "content": f"Manual investigation requested:\n{mitre_context}"}
     ]
 
     incident_data = None
@@ -530,6 +579,10 @@ async def manual_analyze(req: AnalyzeManualRequest, request: Request):
                 break  # Report saved — exit loop
 
         if incident_data:
+            inc_id = f"INC-MANUAL-{int(time.time())}"
+            incident_data["id"] = inc_id
+            incident_data["timestamp"] = datetime.datetime.now().isoformat()
+            database.save_incident(incident_data)
             return incident_data
         else:
             print("[AGENT] Loop exhausted without create_incident. Full messages:")
@@ -542,13 +595,11 @@ async def manual_analyze(req: AnalyzeManualRequest, request: Request):
 
 @router.get("/api/incidents")
 def get_incidents(request: Request):
-    state = request.app.state.global_state
-    return state.get("incidents", {})
+    return database.get_incidents()
 
 @router.get("/api/incidents/{incident_id}")
 def get_incident(incident_id: str, request: Request):
-    state = request.app.state.global_state
-    inc = state.get("incidents", {}).get(incident_id)
+    inc = database.get_incident_by_id(incident_id)
     if not inc:
         raise HTTPException(status_code=404, detail="Incident not found")
     return inc
