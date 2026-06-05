@@ -1,3 +1,19 @@
+# Hugging Face Spaces – Git LFS tracking rules
+# All large files must be tracked by LFS (HF rejects regular objects > 10 MB)
+# Model weights & serialised objects
+*.keras       filter=lfs diff=lfs merge=lfs -text
+*.h5          filter=lfs diff=lfs merge=lfs -text
+*.pt          filter=lfs diff=lfs merge=lfs -text
+*.pkl         filter=lfs diff=lfs merge=lfs -text
+*.joblib      filter=lfs diff=lfs merge=lfs -text
+# Datasets & inference artefacts
+*.parquet     filter=lfs diff=lfs merge=lfs -text
+*.csv         filter=lfs diff=lfs merge=lfs -text
+*.txt         filter=lfs diff=lfs merge=lfs -text
+# Large JSON / DB files
+*.json        filter=lfs diff=lfs merge=lfs -text
+*.sqlite3     filter=lfs diff=lfs merge=lfs -text
+*.db          filter=lfs diff=lfs merge=lfs -text
 backend/chroma_db/chroma.sqlite3 filter=lfs diff=lfs merge=lfs -text
 data/inference_samples.txt filter=lfs diff=lfs merge=lfs -text
 backend/enterprise-attack.json filter=lfs diff=lfs merge=lfs -text
