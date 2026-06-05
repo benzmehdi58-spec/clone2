@@ -104,13 +104,13 @@ export const submitLogForAnalysis = async (raw: string, _source: "hdfs" | "netwo
 
 // ─── Model Metrics ───────────────────────────────────────────────────────────
 
-export const fetchModelMetrics = async (model: "network" | "system") => {
-  if (model === "system") {
+export const fetchModelMetrics = async (model: "network" | "system" | "auth" | "ueba") => {
+  if (model === "system" || model === "auth" || model === "ueba") {
     try {
-      const data = await apiFetch("/api/model/system");
+      const data = await apiFetch(`/api/model/${model}`);
       return data;
     } catch (e) {
-      console.warn("fetchModelMetrics (system) failed", e);
+      console.warn(`fetchModelMetrics (${model}) failed`, e);
     }
   }
 

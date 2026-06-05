@@ -6,7 +6,7 @@ import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   LineChart, Line
 } from "recharts";
-import { ShieldAlert, Server, Network, Activity, Target, BrainCircuit } from "lucide-react";
+import { ShieldAlert, Server, Network, Activity, Target, BrainCircuit, User, Key } from "lucide-react";
 import { useNavigate } from "react-router";
 import { fetchDashboardStats, getIncidents } from "../api/agent";
 import { COLORS } from "../constants";
@@ -282,7 +282,10 @@ export function Dashboard() {
                     <td className="px-4 py-3 font-mono text-[#e9ebef]">{alert.time}</td>
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-2">
-                        {alert.source === 'Network' ? <Network className="h-4 w-4" style={{ color: COLORS.blue }}/> : <Server className="h-4 w-4" style={{ color: COLORS.amber }}/>}
+                        {alert.source === 'Network' ? <Network className="h-4 w-4" style={{ color: COLORS.blue }}/> : 
+                         alert.source === 'auth_log' ? <Key className="h-4 w-4" style={{ color: '#8957E5' }}/> : 
+                         alert.source === 'insider_threat' ? <User className="h-4 w-4" style={{ color: COLORS.red }}/> : 
+                         <Server className="h-4 w-4" style={{ color: COLORS.amber }}/>}
                         {alert.source}
                       </div>
                     </td>

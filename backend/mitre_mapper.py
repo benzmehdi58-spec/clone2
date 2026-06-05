@@ -54,6 +54,21 @@ ATTACK_TO_MITRE = {
         kill_chain_stage=3, kill_chain_name="Delivery",
         description="Exploitation of public facing service."
     ),
+    # ── Auth Log (SSH) — Model A ──────────────────────────────────────────────
+    "invalid_user_scan": MITREResult(
+        tactic="Reconnaissance", tactic_id="TA0043",
+        technique="Account Discovery", technique_id="T1087",
+        kill_chain_stage=1, kill_chain_name="Reconnaissance",
+        sub_technique="Local Account", sub_id="T1087.001",
+        description="Adversary scanning for valid usernames via invalid SSH login attempts."
+    ),
+    # ── UEBA Insider Threat — Model B ─────────────────────────────────────────
+    "insider_threat": MITREResult(
+        tactic="Exfiltration", tactic_id="TA0010",
+        technique="Exfiltration Over Alternative Protocol", technique_id="T1048",
+        kill_chain_stage=7, kill_chain_name="Actions on Objectives",
+        description="Insider threat — anomalous behavioral pattern across logon, device, file, web, and email activity over a 7-day window."
+    ),
     "generic": MITREResult(
         tactic="Defense Evasion", tactic_id="TA0005",
         technique="Obfuscated Files or Information", technique_id="T1027",

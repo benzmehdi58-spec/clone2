@@ -1,7 +1,11 @@
 """
 CyberAI FastAPI Backend
-Loads LSTM (HDFS system logs) + Three-Stage Network pipeline at startup
-and serves real predictions to the React frontend.
+Loads:
+  - HDFS LSTM (system logs)
+  - Three-Stage Network pipeline (LightGBM + XGBoost + Autoencoder)
+  - Model A: SSH Auth Log Detector (CNN + BiLSTM + Attention)
+  - Model B: UEBA Insider Threat Detector (MultiScale CNN + BiLSTM + 8-Head Attention)
+at startup and serves real predictions + pre-computed 3% inference results.
 """
 
 import os
@@ -58,11 +62,33 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 import database
 # ─── Paths ──────────────────────────────────────────────────────────────────
-BASE_DIR    = Path(__file__).parent.parent          # project root
-MODEL_PATH  = BASE_DIR / "models" / "lstm_final.keras"
-VOCAB_PATH  = BASE_DIR / "models" / "vocab.pkl"
-SAMPLES_PATH = BASE_DIR / "data" / "inference_samples.txt"
-LABELS_PATH  = BASE_DIR / "data" / "inference_labels.csv"
+_HERE    = Path(__file__).parent          # /app in Docker | .../backend locally
+_ROOT    = _HERE.parent                   # /   in Docker  | project root locally
+
+# Smart model finder: prefer backend/models/ (Docker), fall back to root/models/ (local dev)
+_MODELS_DIR  = _HERE / "models" if (_HERE / "models").exists() else _ROOT / "models"
+_DATA_DIR    = _HERE / "data"   if (_HERE / "data").exists()   else _ROOT / "data"
+
+BASE_DIR     = _ROOT
+MODEL_PATH   = _MODELS_DIR / "lstm_final.keras"
+VOCAB_PATH   = _MODELS_DIR / "vocab.pkl"
+SAMPLES_PATH = _DATA_DIR   / "inference_samples.txt"
+LABELS_PATH  = _DATA_DIR   / "inference_labels.csv"
+
+# ─── Model A — SSH Auth Log Detector paths ─────────────────────────────
+SSH_MODEL_PATH    = _MODELS_DIR / "ssh_model.keras"
+SSH_VOCAB_PATH    = _MODELS_DIR / "ssh_vocab.pkl"
+SSH_LE_PATH       = _MODELS_DIR / "ssh_label_encoder.pkl"
+SSH_RESULTS_PATH  = _DATA_DIR   / "ssh_inference_results.json"
+SSH_MAX_SEQ_LEN   = 128
+
+# ─── Model B — UEBA Insider Threat Detector paths ───────────────────────
+UEBA_MODEL_PATH   = _MODELS_DIR / "ueba_model.keras"
+UEBA_LE_PATH      = _MODELS_DIR / "ueba_label_encoder.pkl"
+UEBA_SCALER_PATH  = _MODELS_DIR / "ueba_scaler.pkl"
+UEBA_FEAT_PATH    = _MODELS_DIR / "ueba_feature_cols.pkl"
+UEBA_RESULTS_PATH = _DATA_DIR   / "ueba_inference_results.json"
+UEBA_WINDOW_SIZE  = 7
 
 # ─── Hyperparameters (match notebook exactly) ───────────────────────────────
 MAX_SEQ_LEN = 50
@@ -193,23 +219,63 @@ PATTERNS = [
      'Verification succeeded for BLK'),
 ]
 
+
+# ─── FocalLoss shim (needed by load_model for both SSH and UEBA Keras models) ───
+if tf is not None:
+    class _FocalLoss(tf.keras.losses.Loss):
+        """FocalLoss used during SSH and UEBA training. Required for load_model()."""
+        def __init__(self, alpha=0.25, gamma=2.0, **kwargs):
+            super().__init__(**kwargs)
+            self.alpha = alpha
+            self.gamma = gamma
+        def call(self, y_true, y_pred):
+            y_true = tf.cast(tf.squeeze(y_true), tf.int32)
+            y_pred = tf.cast(tf.clip_by_value(y_pred, 1e-7, 1.0), tf.float32)
+            y_oh   = tf.one_hot(y_true, depth=tf.shape(y_pred)[-1], dtype=tf.float32)
+            p_t    = tf.reduce_sum(y_oh * y_pred, axis=-1)
+            return tf.reduce_mean(self.alpha * tf.pow(1.0 - p_t, self.gamma) * (-tf.math.log(p_t)))
+        def get_config(self):
+            cfg = super().get_config()
+            cfg.update({'alpha': self.alpha, 'gamma': self.gamma})
+            return cfg
+else:
+    class _FocalLoss:
+        pass
+
+
 BLOCK_RE = re.compile(r'(blk_-?\d+)')
 
 # ─── Global state (populated at startup) ────────────────────────────────────
 state: dict = {
-    "model":        None,
-    "vocab":        None,
-    "logs":         [],    # list of dicts, one per HDFS block session
-    "metrics":      {},    # HDFS model metrics vs ground truth
-    "net_pipeline": None,  # ThreeStagePipeline instance
-    "net_metrics":  {},    # network smoke-test metrics
-    "net_logs":     [],    # rolling buffer of network predictions
-    "incidents":    {},    # agent-generated incident reports
-    "alert_buffer": [],    # unified buffer of all high-confidence alerts
-    "net_simulator": None,
+    # ─ HDFS (original) ─────────────────────────────────────────────
+    "model":         None,
+    "vocab":         None,
+    "logs":          [],    # unified log explorer — all sources feed into here
+    "metrics":       {},    # HDFS model metrics
+    # ─ Network (original) ────────────────────────────────────────
+    "net_pipeline":  None,
+    "net_metrics":   {},
+    "net_logs":      [],
+    # ─ Shared ───────────────────────────────────────────────
+    "incidents":     {},
+    "alert_buffer":  [],    # high-confidence alerts for correlation engine
+    "net_simulator":  None,
     "hdfs_simulator": None,
-    "net_stop_event": None,
+    "net_stop_event":  None,
     "hdfs_stop_event": None,
+    # ─ Model A: SSH Auth Log Detector ─────────────────────────────
+    "ssh_model":     None,   # Keras CNN-BiLSTM (optional — for live inference)
+    "ssh_vocab":     None,   # {template_str: int_index}
+    "ssh_le":        None,   # LabelEncoder: bruteforce, invalid_user_scan, normal
+    "ssh_logs":      [],     # rolling buffer
+    "ssh_metrics":   {},     # accuracy stats from 3% holdout JSON
+    # ─ Model B: UEBA Insider Threat Detector ─────────────────────
+    "ueba_model":    None,   # Keras MultiScale CNN-BiLSTM (optional)
+    "ueba_le":       None,   # LabelEncoder: insider_threat, normal
+    "ueba_scaler":   None,   # StandardScaler fitted on training data
+    "ueba_feat":     None,   # list[str] of 26 feature names (order matters)
+    "ueba_logs":     [],     # rolling buffer
+    "ueba_metrics":  {},     # accuracy stats from 3% holdout JSON
 }
 
 
@@ -268,69 +334,76 @@ async def lifespan(app: FastAPI):
     # The file has no newlines — split on HDFS timestamp pattern (YYMMDD HHMMSS threadID)
     ENTRY_RE = re.compile(r'(?=\d{6}\s\d{6}\s\d+\s)')
     block_lines: dict[str, list[str]] = defaultdict(list)
-    with open(SAMPLES_PATH, "r", encoding="utf-8", errors="ignore") as f:
-        raw = f.read()
-    entries = ENTRY_RE.split(raw)
-    for entry in entries:
-        entry = entry.strip()
-        if not entry:
-            continue
-        match = BLOCK_RE.search(entry)
-        if match:
-            block_id = match.group(1)
-            block_lines[block_id].append(entry)
-
-    print(f"    Found {len(block_lines)} unique block sessions")
+    try:
+        with open(SAMPLES_PATH, "r", encoding="utf-8", errors="ignore") as f:
+            raw = f.read()
+        entries = ENTRY_RE.split(raw)
+        for entry in entries:
+            entry = entry.strip()
+            if not entry:
+                continue
+            match = BLOCK_RE.search(entry)
+            if match:
+                block_id = match.group(1)
+                block_lines[block_id].append(entry)
+        print(f"    Found {len(block_lines)} unique block sessions")
+    except FileNotFoundError:
+        print(f"[WARN] inference_samples.txt not found at {SAMPLES_PATH} — HDFS replay disabled")
 
     # Load ground truth labels
-    labels_df = pd.read_csv(LABELS_PATH)
-    label_map = dict(zip(labels_df["block_id"], labels_df["Label"]))
+    label_map = {}
+    try:
+        labels_df = pd.read_csv(LABELS_PATH)
+        label_map = dict(zip(labels_df["block_id"], labels_df["Label"]))
+    except FileNotFoundError:
+        print(f"[WARN] inference_labels.csv not found at {LABELS_PATH} — labels disabled")
 
-    print("[*] Running batch LSTM inference on all sessions...")
     logs = []
-    y_true, y_pred = [], []
+    if block_lines:
+        print("[*] Running batch LSTM inference on all sessions...")
+        y_true, y_pred = [], []
 
-    block_ids = list(block_lines.keys())
-    # Batch predict for speed
-    all_tokens = [[parse_event(line, vocab) for line in block_lines[bid]] for bid in block_ids]
-    all_seqs   = [encode_and_pad(toks, vocab) for toks in all_tokens]
-    X_batch    = np.vstack(all_seqs)                        # shape: (N, MAX_SEQ_LEN)
-    
-    if hasattr(model, 'is_mock') and getattr(model, 'is_mock'):
-        # Simulate high-accuracy predictions based on the ground truth
-        probs = []
-        for bid in block_ids:
+        block_ids = list(block_lines.keys())
+        # Batch predict for speed
+        all_tokens = [[parse_event(line, vocab) for line in block_lines[bid]] for bid in block_ids]
+        all_seqs   = [encode_and_pad(toks, vocab) for toks in all_tokens]
+        X_batch    = np.vstack(all_seqs)                        # shape: (N, MAX_SEQ_LEN)
+        
+        if hasattr(model, 'is_mock') and getattr(model, 'is_mock'):
+            # Simulate high-accuracy predictions based on the ground truth
+            probs = []
+            for bid in block_ids:
+                truth = label_map.get(bid, "Normal")
+                # 99% accuracy simulation
+                if truth == "Anomaly":
+                    probs.append(np.random.uniform(0.6, 0.99) if np.random.rand() < 0.98 else np.random.uniform(0.1, 0.4))
+                else:
+                    probs.append(np.random.uniform(0.01, 0.4) if np.random.rand() < 0.99 else np.random.uniform(0.6, 0.9))
+            probs = np.array(probs)
+        else:
+            probs      = model.predict(X_batch, batch_size=512, verbose=1).flatten()
+
+        for i, bid in enumerate(block_ids):
+            prob  = float(probs[i])
+            label = "Anomaly" if prob >= 0.5 else "Normal"
+            conf  = round((prob if prob >= 0.5 else 1.0 - prob) * 100, 1)
             truth = label_map.get(bid, "Normal")
-            # 99% accuracy simulation
-            if truth == "Anomaly":
-                probs.append(np.random.uniform(0.6, 0.99) if np.random.rand() < 0.98 else np.random.uniform(0.1, 0.4))
-            else:
-                probs.append(np.random.uniform(0.01, 0.4) if np.random.rand() < 0.99 else np.random.uniform(0.6, 0.9))
-        probs = np.array(probs)
-    else:
-        probs      = model.predict(X_batch, batch_size=512, verbose=1).flatten()
 
-    for i, bid in enumerate(block_ids):
-        prob  = float(probs[i])
-        label = "Anomaly" if prob >= 0.5 else "Normal"
-        conf  = round((prob if prob >= 0.5 else 1.0 - prob) * 100, 1)
-        truth = label_map.get(bid, "Normal")
+            raw_preview = block_lines[bid][0] if block_lines[bid] else ""
 
-        raw_preview = block_lines[bid][0] if block_lines[bid] else ""
+            logs.append({
+                "block_id":   bid,
+                "source":     "HDFS",
+                "label":      label,
+                "confidence": conf,
+                "truth":      truth,
+                "raw":        "\n".join(block_lines[bid][:5]),  # first 5 entries as preview
+                "preview":    raw_preview[:120],
+                "event_count": len(block_lines[bid]),
+            })
 
-        logs.append({
-            "block_id":   bid,
-            "source":     "HDFS",
-            "label":      label,
-            "confidence": conf,
-            "truth":      truth,
-            "raw":        "\n".join(block_lines[bid][:5]),  # first 5 entries as preview
-            "preview":    raw_preview[:120],
-            "event_count": len(block_lines[bid]),
-        })
-
-        y_true.append(1 if truth == "Anomaly" else 0)
-        y_pred.append(1 if label == "Anomaly" else 0)
+            y_true.append(1 if truth == "Anomaly" else 0)
+            y_pred.append(1 if label == "Anomaly" else 0)
 
     state["logs"] = logs
     print(f"[OK] Inference complete on {len(logs)} sessions")
@@ -427,8 +500,9 @@ async def lifespan(app: FastAPI):
 
     # After rag_manager initialization
     try:
+        from rag_manager import rag_manager as _rag_manager
         from rag_analyzer import RAGAnalyzer
-        rag_analyzer = RAGAnalyzer(rag_manager)
+        rag_analyzer = RAGAnalyzer(_rag_manager)
         app.state.rag_analyzer = rag_analyzer
     except Exception as e:
         app.state.rag_analyzer = None
@@ -442,6 +516,94 @@ async def lifespan(app: FastAPI):
         state["hdfs_stop_event"] = asyncio.Event()
     except Exception as e:
         print(f"[Simulators] Not available: {e}")
+
+    # ─── Model A: SSH Auth Log — load pre-computed 3% inference results ───────
+    import json as _json
+    try:
+        with open(SSH_RESULTS_PATH, "r", encoding="utf-8") as _f:
+            _ssh_results = _json.load(_f)
+        for _r in _ssh_results:
+            _r.setdefault("source",          "auth_log")
+            _r.setdefault("event_count",     1)
+            _r.setdefault("label",  "Anomaly" if _r.get("verdict") == "ATTACK" else "Normal")
+            _r["timestamp_epoch"] = __import__("time").time()
+        state["ssh_logs"] = _ssh_results
+        state["logs"].extend(_ssh_results)
+        _n     = len(_ssh_results)
+        _atk   = sum(1 for r in _ssh_results if r.get("verdict") == "ATTACK")
+        _corr  = sum(1 for r in _ssh_results if r.get("is_correct", True))
+        state["ssh_metrics"] = {
+            "total":    _n,
+            "attacks":  _atk,
+            "normals":  _n - _atk,
+            "accuracy": round(_corr / _n * 100, 2) if _n else 0,
+        }
+        print(f"[OK] SSH inference results loaded: {_n} sessions  (attacks={_atk})")
+    except FileNotFoundError:
+        print(f"[INFO] ssh_inference_results.json not found — drop into backend/data/ when ready")
+    except Exception as _e:
+        print(f"[WARN] SSH results load error: {_e}")
+
+    # Optional: load SSH Keras model for live /predict/auth
+    try:
+        _ssh_model = load_model(str(SSH_MODEL_PATH), custom_objects={"FocalLoss": _FocalLoss})
+        _ssh_vocab = joblib.load(str(SSH_VOCAB_PATH))
+        _ssh_le    = joblib.load(str(SSH_LE_PATH))
+        state["ssh_model"] = _ssh_model
+        state["ssh_vocab"] = _ssh_vocab
+        state["ssh_le"]    = _ssh_le
+        print(f"[OK] SSH Keras model loaded.  Classes: {list(_ssh_le.classes_)}")
+    except FileNotFoundError:
+        print("[INFO] SSH Keras model files not found — live /predict/auth will return 503")
+    except Exception as _e:
+        print(f"[WARN] SSH Keras model load error: {_e}")
+
+    # ─── Model B: UEBA Insider Threat — load pre-computed 3% inference results ─
+    try:
+        with open(UEBA_RESULTS_PATH, "r", encoding="utf-8") as _f:
+            _ueba_results = _json.load(_f)
+        # Normalise verdict: THREAT → ATTACK, NORMAL → BENIGN
+        for _r in _ueba_results:
+            _r.setdefault("source", "insider_threat")
+            if _r.get("verdict") == "THREAT":
+                _r["verdict"] = "ATTACK"
+            elif _r.get("verdict") == "NORMAL":
+                _r["verdict"] = "BENIGN"
+            _r.setdefault("label", "Anomaly" if _r.get("verdict") == "ATTACK" else "Normal")
+            _r.setdefault("event_count", UEBA_WINDOW_SIZE)
+            _r["timestamp_epoch"] = __import__("time").time()
+        state["ueba_logs"] = _ueba_results
+        state["logs"].extend(_ueba_results)
+        _n      = len(_ueba_results)
+        _threat = sum(1 for r in _ueba_results if r.get("verdict") == "ATTACK")
+        _corr   = sum(1 for r in _ueba_results if r.get("is_correct", True))
+        state["ueba_metrics"] = {
+            "total":   _n,
+            "threats": _threat,
+            "normals": _n - _threat,
+            "accuracy": round(_corr / _n * 100, 2) if _n else 0,
+        }
+        print(f"[OK] UEBA inference results loaded: {_n} windows  (threats={_threat})")
+    except FileNotFoundError:
+        print(f"[INFO] ueba_inference_results.json not found — drop into backend/data/ when ready")
+    except Exception as _e:
+        print(f"[WARN] UEBA results load error: {_e}")
+
+    # Optional: load UEBA Keras model for live /predict/ueba
+    try:
+        _ueba_model  = load_model(str(UEBA_MODEL_PATH), custom_objects={"FocalLoss": _FocalLoss})
+        _ueba_le     = joblib.load(str(UEBA_LE_PATH))
+        _ueba_scaler = joblib.load(str(UEBA_SCALER_PATH))
+        _ueba_feat   = joblib.load(str(UEBA_FEAT_PATH))
+        state["ueba_model"]  = _ueba_model
+        state["ueba_le"]     = _ueba_le
+        state["ueba_scaler"] = _ueba_scaler
+        state["ueba_feat"]   = _ueba_feat
+        print(f"[OK] UEBA Keras model loaded.  Features: {len(_ueba_feat)}, Classes: {list(_ueba_le.classes_)}")
+    except FileNotFoundError:
+        print("[INFO] UEBA Keras model files not found — live /predict/ueba will return 503")
+    except Exception as _e:
+        print(f"[WARN] UEBA Keras model load error: {_e}")
 
     yield
     print("[*] Shutting down.")
@@ -518,7 +680,7 @@ def get_logs(
     filtered = logs
     if search:
         s = search.lower()
-        filtered = [l for l in filtered if s in l["block_id"].lower() or s in l["preview"].lower()]
+        filtered = [l for l in filtered if s in l.get("block_id", "").lower() or s in l.get("session_key", "").lower() or s in l.get("preview", "").lower()]
     if status and status.lower() != "all":
         target = "Anomaly" if status.lower() == "anomaly" else "Normal"
         filtered = [l for l in filtered if l["label"] == target]
@@ -588,7 +750,8 @@ def get_alert_detail(alert_id: str):
         
     confidence = target.get("confidence", 0)
     source = target.get("source", "HDFS")
-    
+
+    # ── Title by source ─────────────────────────────────────────────
     if source == "Network":
         title = "Network Anomaly Detected"
         if "Type: " in target.get("preview", ""):
@@ -598,11 +761,20 @@ def get_alert_detail(alert_id: str):
                     title = f"{t} Attack Detected"
             except Exception:
                 pass
+    elif source == "auth_log":
+        atk = target.get("attack_type", "")
+        title = target.get("title") or (
+            f"SSH {atk.replace('_', ' ').title()} Detected" if atk else "SSH Auth Anomaly"
+        )
+    elif source == "insider_threat":
+        title = target.get("title") or "Insider Threat Detected"
     else:
         title = "HDFS System Anomaly"
 
+    # ── Feature extraction by source ───────────────────────────────
     features = []
     raw_str = target.get("raw", "")
+
     if source == "Network":
         lines = raw_str.split("\n")
         for line in lines:
@@ -616,7 +788,42 @@ def get_alert_detail(alert_id: str):
         if len(features) > 2:
             features[0]["isAnomalous"] = True
             features[1]["isAnomalous"] = True
-    else:
+
+    elif source == "auth_log":
+        # SSH sessions: show IP, attack type, confidence, event count
+        features = [
+            {"name": "Source IP",   "value": target.get("src_ip", target.get("session_key", "N/A")),
+             "isAnomalous": True},
+            {"name": "Attack Type", "value": target.get("attack_type", "normal").replace("_", " ").title(),
+             "isAnomalous": target.get("verdict") == "ATTACK"},
+            {"name": "Events",      "value": str(target.get("event_count", "?")) + " log entries",
+             "isAnomalous": False},
+            {"name": "Confidence",  "value": f"{confidence}%",
+             "isAnomalous": confidence > 85},
+            {"name": "Session Key", "value": target.get("session_key", "N/A"),
+             "isAnomalous": False},
+        ]
+
+    elif source == "insider_threat":
+        # UEBA windows: show user, window, and per-source behavioral summary
+        features = [
+            {"name": "User ID",      "value": target.get("user_id", target.get("session_key", "N/A")),
+             "isAnomalous": True},
+            {"name": "Window Start", "value": target.get("window_start", "N/A"), "isAnomalous": False},
+            {"name": "Window End",   "value": target.get("window_end",   "N/A"), "isAnomalous": False},
+            {"name": "Prediction",   "value": target.get("prediction", "N/A"),
+             "isAnomalous": target.get("verdict") == "ATTACK"},
+            {"name": "Confidence",   "value": f"{confidence}%", "isAnomalous": confidence > 85},
+        ]
+        # Append behavioral breakdown if raw preview has info
+        preview = target.get("preview", "")
+        if "|" in preview:
+            for part in preview.split("|")[1:]:
+                if ":" in part:
+                    k, v = part.split(":", 1)
+                    features.append({"name": k.strip(), "value": v.strip(), "isAnomalous": False})
+
+    else:  # HDFS
         lines = raw_str.split("\n")
         for i, line in enumerate(lines[:10]):
             features.append({
@@ -628,36 +835,60 @@ def get_alert_detail(alert_id: str):
     if "shap_data" in target and target["shap_data"]:
         shapData = target["shap_data"]
     else:
-        # Fallback for HDFS or if SHAP fails
         shapData = [
-            { "feature": features[0]["name"] if len(features) > 0 else "Feature 1", "value": 0.85, "raw": features[0]["value"] if len(features) > 0 else "High", "type": "positive" },
-            { "feature": features[1]["name"] if len(features) > 1 else "Feature 2", "value": 0.65, "raw": features[1]["value"] if len(features) > 1 else "Elevated", "type": "positive" },
-            { "feature": features[2]["name"] if len(features) > 2 else "Feature 3", "value": 0.45, "raw": features[2]["value"] if len(features) > 2 else "Unusual", "type": "positive" },
-            { "feature": features[3]["name"] if len(features) > 3 else "Feature 4", "value": -0.25, "raw": features[3]["value"] if len(features) > 3 else "Normal", "type": "negative" }
+            {"feature": features[0]["name"] if len(features) > 0 else "Feature 1",
+             "value": 0.85, "raw": features[0]["value"] if len(features) > 0 else "High", "type": "positive"},
+            {"feature": features[1]["name"] if len(features) > 1 else "Feature 2",
+             "value": 0.65, "raw": features[1]["value"] if len(features) > 1 else "Elevated", "type": "positive"},
+            {"feature": features[2]["name"] if len(features) > 2 else "Feature 3",
+             "value": 0.45, "raw": features[2]["value"] if len(features) > 2 else "Unusual", "type": "positive"},
+            {"feature": features[3]["name"] if len(features) > 3 else "Feature 4",
+             "value": -0.25, "raw": features[3]["value"] if len(features) > 3 else "Normal", "type": "negative"},
         ]
+
+    # ── UEBA-specific extra fields for the UI ───────────────────────────
+    ueba_extra = {}
+    if source == "insider_threat":
+        ueba_extra = {
+            "user_id":      target.get("user_id"),
+            "window_start": target.get("window_start"),
+            "window_end":   target.get("window_end"),
+        }
 
     return {
         "id":         alert_id,
         "title":      title,
         "source":     source,
-        "time":       "Real-time",
-        "severity":   "critical" if confidence > 85 else "warning",
+        "time":       target.get("time", "Real-time"),
+        "severity":   target.get("severity") or ("critical" if confidence > 85 else "warning"),
         "confidence": confidence,
-        "explanation": f"The AI agent flagged this {source} log/flow as anomalous primarily due to unusual patterns detected in the sequence/flow. It scored {confidence}% on the anomaly prediction model. The raw payload showed significant deviations from normal operating baselines.",
+        "explanation": (
+            f"Model B (UEBA) flagged user {target.get('user_id')} as a potential insider threat over the "
+            f"{target.get('window_start')} – {target.get('window_end')} window. "
+            f"Behavioral anomalies detected across logon, device, file, HTTP, and email sources. "
+            f"Confidence: {confidence}%."
+            if source == "insider_threat" else
+            f"Model A (SSH Auth) flagged IP {target.get('src_ip', 'N/A')} as {target.get('attack_type', 'unknown').replace('_',' ')} "
+            f"based on a session of {target.get('event_count', '?')} log events. Confidence: {confidence}%."
+            if source == "auth_log" else
+            f"The AI flagged this {source} log/flow as anomalous. "
+            f"It scored {confidence}% on the anomaly prediction model."
+        ),
         "shapData":   shapData,
         "features":   features,
         "similarAlerts": [
-            { "date": "Recent",    "id": "ALT-SIM-1", "match": "89% Match", "status": "True Positive" },
-            { "date": "Past Week", "id": "ALT-SIM-2", "match": "75% Match", "status": "True Positive" }
+            {"date": "Recent",    "id": "ALT-SIM-1", "match": "89% Match", "status": "True Positive"},
+            {"date": "Past Week", "id": "ALT-SIM-2", "match": "75% Match", "status": "True Positive"},
         ],
-        # Include raw pipeline fields so the frontend can pass them back to the agent
-        "verdict":     target.get("verdict") or target.get("label", "ATTACK"),
-        "prediction":  target.get("prediction", "Anomaly"),
-        "attack_type": target.get("attack_type"),
+        # Raw pipeline fields for the Analyst Agent
+        "verdict":       target.get("verdict") or target.get("label", "ATTACK"),
+        "prediction":    target.get("prediction", "Anomaly"),
+        "attack_type":   target.get("attack_type"),
         "zero_day_flag": target.get("zero_day_flag", False),
-        "block_id":    target.get("block_id"),
-        "n_events":    target.get("event_count"),
-        "mitre":       target.get("mitre", {}),
+        "block_id":      target.get("block_id"),
+        "n_events":      target.get("event_count"),
+        "mitre":         target.get("mitre", {}),
+        **ueba_extra,
     }
 
 
@@ -925,6 +1156,281 @@ async def predict_network(req: NetworkFlowRequest, background_tasks: BackgroundT
 
     return results
 
+
+
+
+# ─── Model A: SSH Auth Log — Live Inference Endpoint ────────────────────
+
+class AuthLogRequest(BaseModel):
+    raw_log: str              # multi-line SSH log text
+    src_ip:  Optional[str] = None  # extracted from log if not provided
+
+
+@app.post("/api/predict/auth")
+async def predict_auth(req: AuthLogRequest, background_tasks: BackgroundTasks, request: Request):
+    """
+    Live SSH Auth Log inference via Model A (CNN + BiLSTM + Attention).
+    Requires ssh_model.keras + ssh_vocab.pkl + ssh_label_encoder.pkl in models/.
+    Falls back gracefully if model is not loaded.
+    """
+    import time as _time, re as _re
+
+    model = state["ssh_model"]
+    vocab = state["ssh_vocab"]
+    le    = state["ssh_le"]
+    if model is None or vocab is None or le is None:
+        raise HTTPException(
+            status_code=503,
+            detail="SSH model not loaded. Drop ssh_model.keras + ssh_vocab.pkl + ssh_label_encoder.pkl into backend/models/ and restart."
+        )
+
+    IP_REGEX = _re.compile(r'\bfrom\s+((?:\d{1,3}\.){3}\d{1,3})\b')
+    lines = [l.strip() for l in req.raw_log.strip().split("\n") if l.strip()]
+
+    # Extract source IP
+    src_ip = req.src_ip or "UNKNOWN"
+    if src_ip == "UNKNOWN":
+        for line in lines:
+            m = IP_REGEX.search(line)
+            if m:
+                src_ip = m.group(1)
+                break
+
+    # Tokenise using the saved Drain3 vocab
+    OOV_IDX = len(vocab)
+    event_seq = []
+    for line in lines:
+        matched = False
+        for tmpl, idx in vocab.items():
+            if any(word in line for word in tmpl.split() if len(word) > 4):
+                event_seq.append(idx)
+                matched = True
+                break
+        if not matched:
+            event_seq.append(OOV_IDX)
+
+    padded = pad_sequences(
+        [event_seq], maxlen=SSH_MAX_SEQ_LEN, padding="post", truncating="post"
+    )
+
+    probs    = model.predict(padded, verbose=0)[0].astype(float)
+    pred_idx = int(np.argmax(probs))
+    pred_conf = round(float(np.max(probs)) * 100, 2)
+    pred_cls  = le.classes_[pred_idx]
+    is_attack = pred_cls != "normal"
+
+    alert_id = f"AUTH-{src_ip}-{int(_time.time()*1000)}"
+    result = {
+        "id":          alert_id,
+        "block_id":    alert_id,
+        "session_key": src_ip,
+        "source":      "auth_log",
+        "src_ip":      src_ip,
+        "prediction":  pred_cls.replace("_", " ").title(),
+        "verdict":     "ATTACK" if is_attack else "BENIGN",
+        "attack_type": pred_cls if is_attack else None,
+        "confidence":  pred_conf,
+        "preview":     f"AUTH | IP: {src_ip} | {len(lines)} events | {pred_cls}",
+        "label":       "Anomaly" if is_attack else "Normal",
+        "title":       f"SSH {pred_cls.replace('_', ' ').title()} Detected" if is_attack else "Normal SSH Activity",
+        "severity":    "critical" if pred_conf > 85 else ("warning" if is_attack else "info"),
+        "time":        _time.strftime("%Y-%m-%dT%H:%M:%SZ", _time.gmtime()),
+        "event_count": len(lines),
+        "timestamp_epoch": _time.time(),
+    }
+
+    # Enrich with MITRE
+    result = mitre_mapper.enrich(result, {"Dst Port": 22, "Protocol": 6})
+
+    state["ssh_logs"].append(result)
+    state["ssh_logs"] = state["ssh_logs"][-500:]
+    state["logs"].append(result)
+
+    if is_attack:
+        database.save_alert(result)
+        state["alert_buffer"].append(result)
+        asyncio.create_task(manager.broadcast(result))
+        from agent_router import run_agent
+        background_tasks.add_task(run_agent, trigger_payload=result, app_state=request.app.state)
+
+    return result
+
+
+# ─── Model B: UEBA Insider Threat — Live Inference Endpoint ───────────────
+
+class DailyFeatures(BaseModel):
+    logon_total:         float = 0.0
+    logon_after_h:       float = 0.0
+    logon_weekend:       float = 0.0
+    logon_unique_pcs:    float = 0.0
+    logon_count:         float = 0.0
+    logoff_count:        float = 0.0
+    device_total:        float = 0.0
+    device_after_h:      float = 0.0
+    device_weekend:      float = 0.0
+    device_connects:     float = 0.0
+    file_total:          float = 0.0
+    file_after_h:        float = 0.0
+    file_weekend:        float = 0.0
+    file_unique_names:   float = 0.0
+    file_sensitive:      float = 0.0
+    http_total:          float = 0.0
+    http_after_h:        float = 0.0
+    http_weekend:        float = 0.0
+    http_unique_domains: float = 0.0
+    http_suspicious:     float = 0.0
+    email_total:         float = 0.0
+    email_after_h:       float = 0.0
+    email_weekend:       float = 0.0
+    email_attachments:   float = 0.0
+    email_avg_size:      float = 0.0
+    email_recipients:    float = 0.0
+
+
+class UEBARequest(BaseModel):
+    user_id:        str
+    window_start:   str
+    window_end:     str
+    daily_features: list[DailyFeatures]
+
+
+@app.post("/api/predict/ueba")
+async def predict_ueba(req: UEBARequest, background_tasks: BackgroundTasks, request: Request):
+    """
+    Live UEBA inference via Model B (MultiScale CNN + BiLSTM + 8-Head Attention).
+    Requires ueba_model.keras + ueba_label_encoder.pkl + ueba_scaler.pkl + ueba_feature_cols.pkl.
+    """
+    import time as _time
+
+    model   = state["ueba_model"]
+    le      = state["ueba_le"]
+    scaler  = state["ueba_scaler"]
+    feat_cols = state["ueba_feat"]
+
+    if model is None or le is None or scaler is None or feat_cols is None:
+        raise HTTPException(
+            status_code=503,
+            detail="UEBA model not loaded. Drop ueba_model.keras + ueba_label_encoder.pkl + ueba_scaler.pkl + ueba_feature_cols.pkl into backend/models/ and restart."
+        )
+    if len(req.daily_features) != UEBA_WINDOW_SIZE:
+        raise HTTPException(
+            status_code=400,
+            detail=f"UEBA requires exactly {UEBA_WINDOW_SIZE} daily feature dicts (got {len(req.daily_features)})."
+        )
+
+    # Build (7, 26) matrix
+    X = np.array(
+        [[getattr(day, f, 0.0) for f in feat_cols] for day in req.daily_features],
+        dtype=np.float32
+    )
+    X = scaler.transform(X)
+    X = X.reshape(1, UEBA_WINDOW_SIZE, len(feat_cols))
+
+    probs     = model.predict(X, verbose=0)[0].astype(float)
+    pred_idx  = int(np.argmax(probs))
+    pred_conf = round(float(np.max(probs)) * 100, 2)
+    pred_cls  = le.classes_[pred_idx]
+    is_threat = pred_cls == "insider_threat"
+
+    alert_id = f"UEBA-{req.user_id}-{req.window_start}"
+    result = {
+        "id":           alert_id,
+        "block_id":     alert_id,
+        "session_key":  req.user_id,
+        "source":       "insider_threat",
+        "user_id":      req.user_id,
+        "window_start": req.window_start,
+        "window_end":   req.window_end,
+        "prediction":   "Insider Threat" if is_threat else "Normal",
+        "verdict":      "ATTACK" if is_threat else "BENIGN",   # normalized
+        "attack_type":  "insider_threat" if is_threat else None,
+        "confidence":   pred_conf,
+        "preview":      f"UEBA | User: {req.user_id} | {req.window_start} - {req.window_end}",
+        "label":        "Anomaly" if is_threat else "Normal",
+        "title":        "Insider Threat Detected" if is_threat else "Normal User Activity",
+        "severity":     "critical" if pred_conf > 85 else ("warning" if is_threat else "info"),
+        "time":         req.window_end + "T00:00:00Z",
+        "event_count":  UEBA_WINDOW_SIZE,
+        "timestamp_epoch": _time.time(),
+    }
+
+    # Enrich with MITRE
+    result = mitre_mapper.enrich(result, {})
+
+    state["ueba_logs"].append(result)
+    state["ueba_logs"] = state["ueba_logs"][-500:]
+    state["logs"].append(result)
+
+    if is_threat:
+        database.save_alert(result)
+        state["alert_buffer"].append(result)
+        asyncio.create_task(manager.broadcast(result))
+        from agent_router import run_agent
+        background_tasks.add_task(run_agent, trigger_payload=result, app_state=request.app.state)
+
+    return result
+
+
+# ─── Model A metrics endpoint ─────────────────────────────────────────────
+
+@app.get("/api/model/auth")
+def get_auth_model_metrics():
+    """Return pre-computed metrics from the SSH 3% holdout."""
+    m = state["ssh_metrics"]
+    if not m:
+        m = {"accuracy": 0, "attacks": 0, "total": 0}
+
+    logs = state["ssh_logs"]
+    attack_counts = {}
+    for r in logs:
+        atk = r.get("attack_type") or "normal"
+        attack_counts[atk] = attack_counts.get(atk, 0) + 1
+
+    return {
+        "model":    "SSH Auth Log Detector (CNN + BiLSTM + Attention)",
+        "dataset":  "LogHub SSH (omduggineni/loghub-ssh-log-data)",
+        "classes":  ["bruteforce", "invalid_user_scan", "normal"],
+        "metrics": [
+            {"label": "Accuracy",   "val": f"{m['accuracy']:.1f}%",  "up": True},
+            {"label": "Attacks",    "val": str(m['attacks']),         "up": False},
+            {"label": "Sessions",   "val": str(m['total']),           "up": True},
+        ],
+        "attackBreakdown": [
+            {"type": k, "count": v}
+            for k, v in sorted(attack_counts.items(), key=lambda x: -x[1])
+        ],
+        "modelLoaded": state["ssh_model"] is not None,
+        "totalSessions": m["total"],
+    }
+
+
+# ─── Model B metrics endpoint ─────────────────────────────────────────────
+
+@app.get("/api/model/ueba")
+def get_ueba_model_metrics():
+    """Return pre-computed metrics from the UEBA 3% holdout."""
+    m = state["ueba_metrics"]
+    if not m:
+        m = {"accuracy": 0, "threats": 0, "total": 0}
+
+    logs = state["ueba_logs"]
+    users_flagged = list({r.get("user_id") for r in logs if r.get("verdict") == "ATTACK"})
+
+    return {
+        "model":    "UEBA Insider Threat Detector (MultiScale CNN + BiLSTM + 8-Head Attention)",
+        "dataset":  "CERT Insider Threat r4.2 (CMU SEI)",
+        "classes":  ["insider_threat", "normal"],
+        "windowSize": UEBA_WINDOW_SIZE,
+        "features": 26,
+        "metrics": [
+            {"label": "Accuracy",      "val": f"{m['accuracy']:.1f}%", "up": True},
+            {"label": "Threats Found", "val": str(m['threats']),        "up": False},
+            {"label": "Windows",       "val": str(m['total']),          "up": True},
+        ],
+        "usersFlagged":  users_flagged[:20],
+        "modelLoaded":   state["ueba_model"] is not None,
+        "totalWindows":  m["total"],
+    }
 
 
 # ─── Alerts Clear Endpoint ───────────────────────────────────────────────────

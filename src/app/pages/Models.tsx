@@ -5,7 +5,7 @@ import {
   AreaChart, Area, CartesianGrid, ReferenceLine, LineChart, Line,
   PieChart, Pie, Cell, Legend,
 } from "recharts";
-import { ArrowUpRight, ArrowDownRight, Server, Network, Loader2, AlertTriangle, Shield } from "lucide-react";
+import { ArrowUpRight, ArrowDownRight, Server, Network, Loader2, AlertTriangle, Shield, User, Key } from "lucide-react";
 import { cn } from "../utils/cn";
 import { fetchModelMetrics } from "../api/agent";
 import { COLORS } from "../constants";
@@ -17,7 +17,7 @@ function fmt(n: number) {
 const VERDICT_COLORS = ["#3FB950", "#F85149", "#D29922"];
 
 export function Models() {
-  const [activeTab, setActiveTab] = useState<"network" | "system">("system");
+  const [activeTab, setActiveTab] = useState<"network" | "system" | "auth" | "ueba">("system");
   const [data, setData] = useState<any>(null);
   const [isLoading, setIsLoading] = useState(true);
 
@@ -35,7 +35,7 @@ export function Models() {
     return () => clearInterval(interval);
   }, [load]);
 
-  const accent = activeTab === "network" ? COLORS.blue : COLORS.amber;
+  const accent = activeTab === "network" ? COLORS.blue : activeTab === "auth" ? "#8957E5" : activeTab === "ueba" ? COLORS.red : COLORS.amber;
   const cm = data?.confusionMatrix ?? { TP: 0, TN: 0, FP: 0, FN: 0 };
 
   return (
@@ -59,6 +59,20 @@ export function Models() {
           onClick={() => setActiveTab("network")}
         >
           <Network className="h-4 w-4" /> Network Model (CIC-IDS2017) — Live
+        </button>
+        <button
+          className={cn("px-6 py-3 text-sm font-medium border-b-2 transition-colors flex items-center gap-2",
+            activeTab === "auth" ? "border-[#8957E5] text-[#8957E5]" : "border-transparent text-[#717182] hover:text-[#e9ebef]")}
+          onClick={() => setActiveTab("auth")}
+        >
+          <Key className="h-4 w-4" /> Auth Model (SSH) — 3% Holdout
+        </button>
+        <button
+          className={cn("px-6 py-3 text-sm font-medium border-b-2 transition-colors flex items-center gap-2",
+            activeTab === "ueba" ? "border-[#F85149] text-[#F85149]" : "border-transparent text-[#717182] hover:text-[#e9ebef]")}
+          onClick={() => setActiveTab("ueba")}
+        >
+          <User className="h-4 w-4" /> Insider Threat (UEBA) — 3% Holdout
         </button>
       </div>
 
