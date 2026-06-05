@@ -4,7 +4,7 @@ import json
 import asyncio
 from typing import Dict, Any
 
-HONEYPOT_LOG_PATH = os.path.join(os.path.dirname(__file__), "..", "data", "live_honeypot.log")
+HONEYPOT_LOG_PATH = os.path.join(os.path.dirname(__file__), "data", "live_honeypot.log")
 
 async def tail_honeypot(app_state: Dict[str, Any]):
     print("[HONEYPOT] Starting honeypot tailer...")

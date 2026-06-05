@@ -30,7 +30,13 @@ from sklearn.metrics import roc_auc_score, f1_score
 warnings.filterwarnings("ignore")
 
 # ── Default paths ────────────────────────────────────────────────────────────
-ARTIFACTS_DIR = Path(__file__).parent.parent / "network_logs_models"
+_HERE = Path(__file__).resolve().parent
+# In Docker: artifacts are at /app/artifacts/network/
+# In local dev: fall back to project-root/network_logs_models/
+if (_HERE / "artifacts" / "network").exists():
+    ARTIFACTS_DIR = _HERE / "artifacts" / "network"
+else:
+    ARTIFACTS_DIR = _HERE.parent / "network_logs_models"
 
 # Stage 1 threshold from notebook precision-recall curve
 OPTIMAL_S1_THRESHOLD: float = 0.30
