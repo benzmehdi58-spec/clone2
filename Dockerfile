@@ -16,11 +16,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /app
 
 # Install Python dependencies BEFORE copying code (preserves Docker layer cache)
-COPY requirements.txt .
+COPY backend/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy application code + all model artifacts
-COPY . .
+# Copy backend application code + all model artifacts
+COPY backend/ ./backend/
 
 # Fix ownership so non-root user can read everything
 RUN chown -R appuser:appuser /app
@@ -29,6 +29,9 @@ USER appuser
 
 # HF Spaces requires port 7860
 EXPOSE 7860
+
+# Shift working directory to where main.py lives
+WORKDIR /app/backend
 
 # 1 worker — models are loaded into memory and state is shared
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "7860", "--workers", "1"]
