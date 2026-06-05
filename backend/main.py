@@ -359,9 +359,9 @@ async def lifespan(app: FastAPI):
         print(f"[WARN] inference_labels.csv not found at {LABELS_PATH} — labels disabled")
 
     logs = []
+    y_true, y_pred = [], []
     if block_lines:
         print("[*] Running batch LSTM inference on all sessions...")
-        y_true, y_pred = [], []
 
         block_ids = list(block_lines.keys())
         # Batch predict for speed

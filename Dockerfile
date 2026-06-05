@@ -22,6 +22,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy backend application code + all model artifacts
 COPY backend/ ./backend/
 
+# Copy the datasets folder so inference files are available
+COPY data/ ./data/
+
 # Fix ownership so non-root user can read everything
 RUN chown -R appuser:appuser /app
 
