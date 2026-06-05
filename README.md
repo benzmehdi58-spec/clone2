@@ -7,7 +7,7 @@ sdk: docker
 app_port: 7860
 pinned: true
 license: mit
-short_description: AI-powered Network Intrusion Detection System with multi-model threat detection
+short_description: AI-powered Network Intrusion Detection
 ---
 
 # CyberAI NIDS — AI-Powered Network Intrusion Detection System
