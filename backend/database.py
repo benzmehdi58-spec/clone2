@@ -108,7 +108,11 @@ def get_alerts(filter_str: Optional[str] = None) -> List[Dict[str, Any]]:
                 continue
             elif filter_str == "Network" and a.get("source") != "Network":
                 continue
-            elif filter_str == "System" and a.get("source") != "HDFS":
+            elif filter_str == "System" and a.get("source") not in ("auth_log", "insider_threat"):
+                continue
+            elif filter_str == "SSH Auth" and a.get("source") != "auth_log":
+                continue
+            elif filter_str == "UEBA Insider" and a.get("source") != "insider_threat":
                 continue
             elif filter_str == "Honeypot" and a.get("source") != "Honeypot":
                 continue

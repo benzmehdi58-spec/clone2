@@ -31,10 +31,12 @@ yarn-error.log*
 /.vite/
 
 # ── Large model & data files ──────────────────────────────────────────────────
-# Comment these out if you WANT to push models/data to GitHub (use Git LFS instead)
-# models/*.h5
-# models/*.keras
-# models/*.pkl
+# Stored in Hugging Face Hub instead of Git
+*.h5
+*.keras
+*.pkl
+*.npy
+*.csv
 
 # data/*.txt
 # data/*.csv

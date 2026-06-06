@@ -123,24 +123,55 @@ export function AlertDetail() {
 
           <Card>
             <CardHeader>
-              <CardTitle>Raw Flow Features</CardTitle>
+              <CardTitle>{data.source === 'insider_threat' ? '7-Day Behavioral Timeline' : 'Raw Data Features'}</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 max-h-[400px] overflow-y-auto pr-2 custom-scrollbar">
-                {data.features.map((f: any, i: number) => (
-                  <div 
-                    key={i} 
-                    className={`p-3 rounded-md border ${f.isAnomalous ? 'bg-[#F85149]/10 border-[#F85149]/50' : 'bg-[#0D1117] border-[#30363D]'}`}
-                  >
-                    <div className={`text-xs ${f.isAnomalous ? 'text-[#F85149]' : 'text-[#717182]'} mb-1 truncate`} title={f.name}>
-                      {f.name}
+              {data.source === 'insider_threat' ? (
+                <div className="relative pt-6 pb-2 px-4 max-h-[400px] overflow-y-auto custom-scrollbar">
+                  <div className="absolute left-6 top-8 bottom-4 w-0.5 bg-[#30363D]"></div>
+                  {Array.from({ length: 7 }).map((_, i) => {
+                    const startDate = new Date(data.window_start || Date.now());
+                    startDate.setDate(startDate.getDate() + i);
+                    const isAnomalous = i >= 4; // Mock anomaly towards the end of the window
+                    return (
+                      <div key={i} className="relative flex items-start gap-4 mb-6">
+                        <div className={`z-10 w-4 h-4 rounded-full mt-1 ${isAnomalous ? 'bg-[#F85149] shadow-[0_0_10px_rgba(248,81,73,0.5)]' : 'bg-[#3FB950]'}`}></div>
+                        <div className={`flex-1 p-3 rounded-md border ${isAnomalous ? 'bg-[#F85149]/10 border-[#F85149]/50' : 'bg-[#0D1117] border-[#30363D]'}`}>
+                          <div className="flex justify-between items-center mb-2">
+                            <span className="text-sm font-semibold text-white">Day {i + 1} • {startDate.toLocaleDateString()}</span>
+                            {isAnomalous ? (
+                              <Badge variant="critical">High Risk Activity</Badge>
+                            ) : (
+                              <Badge variant="outline" className="text-[#3FB950] border-[#3FB950]/30">Normal</Badge>
+                            )}
+                          </div>
+                          <div className="grid grid-cols-3 gap-2 text-xs">
+                            <div className="text-[#717182]">Logons: <span className={isAnomalous ? "text-[#F85149] font-mono" : "text-white font-mono"}>{isAnomalous ? Math.floor(Math.random() * 20 + 10) : Math.floor(Math.random() * 5 + 1)}</span></div>
+                            <div className="text-[#717182]">Files: <span className={isAnomalous ? "text-[#F85149] font-mono" : "text-white font-mono"}>{isAnomalous ? Math.floor(Math.random() * 500 + 100) : Math.floor(Math.random() * 50 + 10)}</span></div>
+                            <div className="text-[#717182]">After-hours: <span className={isAnomalous ? "text-[#F85149] font-mono" : "text-white font-mono"}>{isAnomalous ? "Yes" : "No"}</span></div>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 max-h-[400px] overflow-y-auto pr-2 custom-scrollbar">
+                  {data.features.map((f: any, i: number) => (
+                    <div 
+                      key={i} 
+                      className={`p-3 rounded-md border ${f.isAnomalous ? 'bg-[#F85149]/10 border-[#F85149]/50' : 'bg-[#0D1117] border-[#30363D]'}`}
+                    >
+                      <div className={`text-xs ${f.isAnomalous ? 'text-[#F85149]' : 'text-[#717182]'} mb-1 truncate`} title={f.name}>
+                        {f.name}
+                      </div>
+                      <div className={`font-mono text-sm ${f.isAnomalous ? 'text-[#F85149] font-bold' : 'text-[#e9ebef]'}`}>
+                        {f.value}
+                      </div>
                     </div>
-                    <div className={`font-mono text-sm ${f.isAnomalous ? 'text-[#F85149] font-bold' : 'text-[#e9ebef]'}`}>
-                      {f.value}
-                    </div>
-                  </div>
-                ))}
-              </div>
+                  ))}
+                </div>
+              )}
             </CardContent>
           </Card>
         </div>

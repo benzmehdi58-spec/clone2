@@ -201,16 +201,11 @@ class MITREMapper:
             enriched.append(self.enrich(r, flow_features))
         return enriched
 
-    def enrich_hdfs(self, result: dict) -> dict:
-        """
-        Enriches HDFS system log predictions with MITRE context.
-        Since HDFS model is binary, we map Anomaly → T1485 (Data Destruction)
-        as the most common HDFS attack pattern, with confidence-based severity.
-        """
+    def enrich_ssh(self, result: dict) -> dict:
+        """Enriches SSH Auth predictions with MITRE context."""
         prediction = result.get("prediction", "Normal")
-        confidence = float(result.get("confidence", 0.0))
-
-        if prediction == "Normal":
+        
+        if prediction == "Normal" or prediction == "BENIGN":
             result["mitre"] = {
                 "tactic":           None,
                 "technique":        None,
@@ -218,47 +213,64 @@ class MITREMapper:
                 "kill_chain_stage": 0,
                 "kill_chain_name":  "No Threat",
                 "severity":         "none",
-                "description":      "HDFS block session follows normal lifecycle pattern."
+                "description":      "SSH session follows normal authentication pattern."
             }
             return result
-
-        # Anomaly detected — map based on confidence level
-        if confidence >= 0.90:
-            technique    = "Data Destruction"
-            technique_id = "T1485"
-            tactic       = "Impact"
-            tactic_id    = "TA0040"
-            kill_stage   = 7
-            severity     = "critical"
-            description  = "High-confidence HDFS anomaly — abnormal block replication or deletion pattern."
-        elif confidence >= 0.70:
-            technique    = "Data Manipulation"
-            technique_id = "T1565"
-            tactic       = "Impact"
-            tactic_id    = "TA0040"
-            kill_stage   = 6
-            severity     = "warning"
-            description  = "Medium-confidence HDFS anomaly — unusual block access sequence detected."
+            
+        if "Brute Force" in prediction:
+            mitre_data = ATTACK_TO_MITRE["bruteforce"]
+            severity = "high"
+        elif "Invalid User" in prediction:
+            mitre_data = ATTACK_TO_MITRE["invalid_user_scan"]
+            severity = "medium"
         else:
-            technique    = "Indicator Removal"
-            technique_id = "T1070"
-            tactic       = "Defense Evasion"
-            tactic_id    = "TA0005"
-            kill_stage   = 4
-            severity     = "low"
-            description  = "Low-confidence HDFS anomaly — minor deviation from normal log pattern."
-
+            mitre_data = ATTACK_TO_MITRE["generic"]
+            severity = "low"
+            
         result["mitre"] = {
-            "tactic":           tactic,
-            "tactic_id":        tactic_id,
-            "technique":        technique,
-            "technique_id":     technique_id,
-            "kill_chain_stage": kill_stage,
-            "kill_chain_name":  ["", "Reconnaissance", "Weaponization", "Delivery",
-                                  "Exploitation", "Installation", "Command & Control",
-                                  "Actions on Objectives"][kill_stage],
-            "severity":         severity,
-            "description":      description
+            "tactic":           mitre_data.tactic,
+            "tactic_id":        mitre_data.tactic_id,
+            "technique":        mitre_data.technique,
+            "technique_id":     mitre_data.technique_id,
+            "sub_technique":    mitre_data.sub_technique,
+            "sub_id":           mitre_data.sub_id,
+            "kill_chain_stage": mitre_data.kill_chain_stage,
+            "kill_chain_name":  mitre_data.kill_chain_name,
+            "description":      mitre_data.description,
+            "severity":         severity
+        }
+        return result
+
+    def enrich_ueba(self, result: dict) -> dict:
+        """Enriches UEBA Insider Threat predictions with MITRE context."""
+        prediction = result.get("prediction", "Normal")
+        
+        if prediction == "Normal" or prediction == "BENIGN":
+            result["mitre"] = {
+                "tactic":           None,
+                "technique":        None,
+                "technique_id":     None,
+                "kill_chain_stage": 0,
+                "kill_chain_name":  "No Threat",
+                "severity":         "none",
+                "description":      "User behavior follows normal baseline."
+            }
+            return result
+            
+        mitre_data = ATTACK_TO_MITRE["insider_threat"]
+        severity = "critical"
+            
+        result["mitre"] = {
+            "tactic":           mitre_data.tactic,
+            "tactic_id":        mitre_data.tactic_id,
+            "technique":        mitre_data.technique,
+            "technique_id":     mitre_data.technique_id,
+            "sub_technique":    mitre_data.sub_technique,
+            "sub_id":           mitre_data.sub_id,
+            "kill_chain_stage": mitre_data.kill_chain_stage,
+            "kill_chain_name":  mitre_data.kill_chain_name,
+            "description":      mitre_data.description,
+            "severity":         severity
         }
         return result
 

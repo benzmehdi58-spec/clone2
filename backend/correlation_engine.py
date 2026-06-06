@@ -8,7 +8,7 @@ class CrossDomainCorrelator:
 
     def correlate(self, alert_buffer: List[Dict[Any, Any]]) -> None:
         """
-        Scans the alert buffer for network and HDFS alerts that occurred
+        Scans the alert buffer for network, SSH, and UEBA alerts that occurred
         within window_seconds of each other and links them.
         """
         if not alert_buffer or len(alert_buffer) < 2:

@@ -1,0 +1,8 @@
+{
+  "normal": "normal",
+  "bruteforce": "bruteforce",
+  "brute_force": "bruteforce",
+  "invalid_user_scan": "invalid_user_scan",
+  "invalid_user": "invalid_user_scan",
+  "scan": "invalid_user_scan"
+}

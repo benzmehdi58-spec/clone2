@@ -9,21 +9,18 @@ import { COLORS } from "../constants";
 
 export function Simulation() {
   const ws = useWebSocket();
-  const [activeTab, setActiveTab] = useState<"hdfs" | "network" | "llm">("hdfs");
+  const [activeTab, setActiveTab] = useState<"ssh" | "network" | "ueba">("ssh");
   const [statusAll, setStatusAll] = useState<any>(null);
   
-  // HDFS State
-  const [hdfsDelay, setHdfsDelay] = useState(() => parseFloat(localStorage.getItem("sim_hdfs_delay") || "2.0"));
+  // SSH State
+  const [sshDelay, setSshDelay] = useState(() => parseFloat(localStorage.getItem("sim_ssh_delay") || "2.0"));
   
   // Network State
   const [netScenario, setNetScenario] = useState(() => localStorage.getItem("sim_net_scenario") || "ddos");
   const [netFps, setNetFps] = useState(() => parseFloat(localStorage.getItem("sim_net_fps") || "1.0"));
   
-  // LLM State
-  const [llmAttack, setLlmAttack] = useState("normal");
-  const [llmBlocks, setLlmBlocks] = useState(10);
-  const [llmSpeed, setLlmSpeed] = useState("medium");
-  const [llmKey, setLlmKey] = useState("");
+  // UEBA State
+  const [uebaDelay, setUebaDelay] = useState(() => parseFloat(localStorage.getItem("sim_ueba_delay") || "2.0"));
 
   // History & Agent State
   const [history, setHistory] = useState<any[]>(() => {
@@ -55,12 +52,12 @@ export function Simulation() {
     localStorage.setItem("sim_history", JSON.stringify(updated));
   };
 
-  const handleStartHdfs = async () => {
-    await SimulationApi.startHdfsReplay(hdfsDelay);
-    saveHistory({ time: new Date().toLocaleTimeString(), type: "HDFS", mode: "Replay", status: "Running" });
+  const handleStartSsh = async () => {
+    await SimulationApi.startSshReplay(sshDelay);
+    saveHistory({ time: new Date().toLocaleTimeString(), type: "SSH", mode: "Replay", status: "Running" });
   };
-  const handleStopHdfs = async () => {
-    await SimulationApi.stopHdfsReplay();
+  const handleStopSsh = async () => {
+    await SimulationApi.stopSshReplay();
   };
 
   const handleStartNet = async () => {
@@ -71,18 +68,17 @@ export function Simulation() {
     await SimulationApi.stopNetwork();
   };
 
-  const handleStartLlm = async () => {
-    if (!llmKey) return alert("API Key required");
-    await SimulationApi.startLLM({ attack_type: llmAttack, block_count: llmBlocks, speed: llmSpeed, api_key: llmKey });
-    saveHistory({ time: new Date().toLocaleTimeString(), type: "LLM", mode: llmAttack, status: "Running" });
+  const handleStartUeba = async () => {
+    await SimulationApi.startUebaReplay(uebaDelay);
+    saveHistory({ time: new Date().toLocaleTimeString(), type: "UEBA", mode: "Replay", status: "Running" });
   };
-  const handleStopLlm = async () => {
-    await SimulationApi.stopLLM();
+  const handleStopUeba = async () => {
+    await SimulationApi.stopUebaReplay();
   };
 
-  const hdfsRunning = statusAll?.hdfs_replay?.active;
+  const sshRunning = statusAll?.ssh?.active;
   const netRunning = statusAll?.network?.active;
-  const llmRunning = statusAll?.llm_generator?.active;
+  const uebaRunning = statusAll?.ueba?.active;
 
   return (
     <div className="flex flex-col gap-6 max-w-7xl mx-auto pb-10">
@@ -108,6 +104,48 @@ export function Simulation() {
         </div>
       </div>
 
+      {/* Mini Dashboard */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <Card className="bg-[#161B22] border-[#30363D]">
+          <CardContent className="p-4 flex flex-col">
+            <div className="text-xs text-[#717182] font-semibold mb-1 uppercase tracking-wider">Total Simulated</div>
+            <div className="text-2xl font-bold text-white font-mono">
+              { ((statusAll?.network?.flows_sent || 0) + (statusAll?.ssh?.sessions_played || 0) + (statusAll?.ueba?.alerts_played || 0)).toLocaleString() }
+            </div>
+            <div className="text-[10px] text-[#717182] mt-1">Logs & Sessions</div>
+          </CardContent>
+        </Card>
+        <Card className="bg-[#161B22] border-[#30363D]">
+          <CardContent className="p-4 flex flex-col">
+            <div className="text-xs text-[#717182] font-semibold mb-1 uppercase tracking-wider flex items-center gap-1">
+              <ShieldAlert className="w-3 h-3 text-[#F85149]" /> Anomalies Caught
+            </div>
+            <div className="text-2xl font-bold text-[#F85149] font-mono">
+              {ws.allAlerts.length.toLocaleString()}
+            </div>
+            <div className="text-[10px] text-[#717182] mt-1">Live from Pipeline</div>
+          </CardContent>
+        </Card>
+        <Card className="bg-[#161B22] border-[#30363D]">
+          <CardContent className="p-4 flex flex-col">
+            <div className="text-xs text-[#717182] font-semibold mb-1 uppercase tracking-wider">Network Scenarios</div>
+            <div className="text-2xl font-bold text-[#2F81F7] font-mono">
+              { (statusAll?.network?.flows_sent || 0).toLocaleString() }
+            </div>
+            <div className="text-[10px] text-[#717182] mt-1">Flows Injected</div>
+          </CardContent>
+        </Card>
+        <Card className="bg-[#161B22] border-[#30363D]">
+          <CardContent className="p-4 flex flex-col">
+            <div className="text-xs text-[#717182] font-semibold mb-1 uppercase tracking-wider">System Attacks</div>
+            <div className="text-2xl font-bold text-[#8B5CF6] font-mono">
+              { ((statusAll?.ssh?.sessions_played || 0) + (statusAll?.ueba?.alerts_played || 0)).toLocaleString() }
+            </div>
+            <div className="text-[10px] text-[#717182] mt-1">SSH & UEBA</div>
+          </CardContent>
+        </Card>
+      </div>
+
       {/* Section A: Data Source Control */}
       <Card>
         <CardHeader>
@@ -117,37 +155,37 @@ export function Simulation() {
         <CardContent>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             
-            {/* HDFS Card */}
+            {/* SSH Card */}
             <div 
-              className={`p-4 rounded-xl border-2 transition-all cursor-pointer flex flex-col ${activeTab === 'hdfs' ? 'border-[#D29922] bg-[#D29922]/5' : 'border-[#30363D] hover:border-[#D29922]/50 bg-[#0D1117]'} ${hdfsRunning ? 'border-[#D29922] animate-pulse-border' : ''}`}
-              onClick={() => setActiveTab('hdfs')}
+              className={`p-4 rounded-xl border-2 transition-all cursor-pointer flex flex-col ${activeTab === 'ssh' ? 'border-[#D29922] bg-[#D29922]/5' : 'border-[#30363D] hover:border-[#D29922]/50 bg-[#0D1117]'} ${sshRunning ? 'border-[#D29922] animate-pulse-border' : ''}`}
+              onClick={() => setActiveTab('ssh')}
             >
               <div className="flex justify-between items-start mb-2">
                 <div className="flex items-center gap-2 text-white font-medium">
-                  <Database className="h-5 w-5 text-[#D29922]" /> Inference Replay
+                  <Database className="h-5 w-5 text-[#D29922]" /> SSH Auth Replay
                 </div>
-                {hdfsRunning && <Badge variant="warning" className="bg-[#D29922]">RUNNING</Badge>}
+                {sshRunning && <Badge variant="warning" className="bg-[#D29922]">RUNNING</Badge>}
               </div>
-              <p className="text-xs text-[#717182] mb-4 flex-1">Stream real HDFS holdout sessions from inference_samples.txt</p>
+              <p className="text-xs text-[#717182] mb-4 flex-1">Stream SSH authentication logs for brute force / invalid user detection</p>
               
-              {activeTab === 'hdfs' && (
+              {activeTab === 'ssh' && (
                 <div className="mt-2 space-y-4" onClick={e => e.stopPropagation()}>
                   <div>
                     <label className="text-xs text-[#e9ebef] flex justify-between">
-                      Delay between sessions <span>{hdfsDelay}s</span>
+                      Delay between logs <span>{sshDelay}s</span>
                     </label>
-                    <input type="range" min="0.5" max="10" step="0.5" value={hdfsDelay} onChange={e => { setHdfsDelay(parseFloat(e.target.value)); localStorage.setItem("sim_hdfs_delay", e.target.value); }} className="w-full mt-1 accent-[#D29922]" />
+                    <input type="range" min="0.5" max="10" step="0.5" value={sshDelay} onChange={e => { setSshDelay(parseFloat(e.target.value)); localStorage.setItem("sim_ssh_delay", e.target.value); }} className="w-full mt-1 accent-[#D29922]" />
                   </div>
                   <div className="pt-2 border-t border-[#30363D] flex items-center justify-between">
                     <div className="text-xs text-[#717182]">
-                      Played: <span className="text-white font-mono">{statusAll?.hdfs_replay?.sessions_played || 0}</span>
+                      Played: <span className="text-white font-mono">{statusAll?.ssh?.sessions_played || 0}</span>
                     </div>
-                    {hdfsRunning ? (
-                      <Button variant="outline" size="sm" className="border-red-500/50 text-red-500 hover:bg-red-500/10" onClick={handleStopHdfs}>
+                    {sshRunning ? (
+                      <Button variant="outline" size="sm" className="border-red-500/50 text-red-500 hover:bg-red-500/10" onClick={handleStopSsh}>
                         <Square className="h-4 w-4 mr-1" /> Stop
                       </Button>
                     ) : (
-                      <Button variant="outline" size="sm" className="border-[#D29922]/50 text-[#D29922] hover:bg-[#D29922]/10" onClick={handleStartHdfs}>
+                      <Button variant="outline" size="sm" className="border-[#D29922]/50 text-[#D29922] hover:bg-[#D29922]/10" onClick={handleStartSsh}>
                         <Play className="h-4 w-4 mr-1" /> Start Replay
                       </Button>
                     )}
@@ -207,60 +245,38 @@ export function Simulation() {
               )}
             </div>
 
-            {/* LLM Card */}
+            {/* UEBA Card */}
             <div 
-              className={`p-4 rounded-xl border-2 transition-all cursor-pointer flex flex-col ${activeTab === 'llm' ? 'border-[#8B5CF6] bg-[#8B5CF6]/5' : 'border-[#30363D] hover:border-[#8B5CF6]/50 bg-[#0D1117]'} ${llmRunning ? 'border-[#8B5CF6] animate-pulse-border' : ''}`}
-              onClick={() => setActiveTab('llm')}
+              className={`p-4 rounded-xl border-2 transition-all cursor-pointer flex flex-col ${activeTab === 'ueba' ? 'border-[#8B5CF6] bg-[#8B5CF6]/5' : 'border-[#30363D] hover:border-[#8B5CF6]/50 bg-[#0D1117]'} ${uebaRunning ? 'border-[#8B5CF6] animate-pulse-border' : ''}`}
+              onClick={() => setActiveTab('ueba')}
             >
               <div className="flex justify-between items-start mb-2">
                 <div className="flex items-center gap-2 text-white font-medium">
-                  <BrainCircuit className="h-5 w-5 text-[#8B5CF6]" /> LLM Log Generator
+                  <BrainCircuit className="h-5 w-5 text-[#8B5CF6]" /> UEBA Insider Threat
                 </div>
-                {llmRunning && <Badge variant="default" className="bg-[#8B5CF6]">RUNNING</Badge>}
+                {uebaRunning && <Badge variant="default" className="bg-[#8B5CF6]">RUNNING</Badge>}
               </div>
-              <p className="text-xs text-[#717182] mb-1 flex-1">Use Claude to generate novel adversarial HDFS log sessions</p>
-              <span className="text-[10px] bg-purple-900/30 text-purple-300 px-2 py-0.5 rounded-full w-max mb-3 border border-purple-500/30">Uses Anthropic API</span>
+              <p className="text-xs text-[#717182] mb-4 flex-1">Stream 7-day user behavior logs for insider threat detection</p>
               
-              {activeTab === 'llm' && (
+              {activeTab === 'ueba' && (
                 <div className="mt-2 space-y-4" onClick={e => e.stopPropagation()}>
-                  <div className="flex flex-wrap gap-1">
-                    {['normal', 'exfiltration', 'deletion', 'replication'].map(t => (
-                      <div key={t} onClick={() => setLlmAttack(t)} className={`text-[11px] px-2 py-1 rounded-full border cursor-pointer capitalize ${llmAttack === t ? 'border-[#8B5CF6] bg-[#8B5CF6]/20 text-white' : 'border-[#30363D] text-[#717182]'}`}>
-                        {t}
-                      </div>
-                    ))}
-                  </div>
                   <div>
                     <label className="text-xs text-[#e9ebef] flex justify-between">
-                      Sessions to generate <span>{llmBlocks}</span>
+                      Delay between logs <span>{uebaDelay}s</span>
                     </label>
-                    <input type="range" min="1" max="50" step="1" value={llmBlocks} onChange={e => setLlmBlocks(parseInt(e.target.value))} className="w-full mt-1 accent-[#8B5CF6]" />
+                    <input type="range" min="0.5" max="10" step="0.5" value={uebaDelay} onChange={e => { setUebaDelay(parseFloat(e.target.value)); localStorage.setItem("sim_ueba_delay", e.target.value); }} className="w-full mt-1 accent-[#8B5CF6]" />
                   </div>
-                  <div className="flex gap-1">
-                    {['slow', 'medium', 'fast'].map(s => (
-                      <div key={s} onClick={() => setLlmSpeed(s)} className={`text-xs flex-1 text-center py-1 border rounded-md cursor-pointer capitalize ${llmSpeed === s ? 'border-[#8B5CF6] text-white' : 'border-[#30363D] text-[#717182]'}`}>
-                        {s}
-                      </div>
-                    ))}
-                  </div>
-                  <input 
-                    type="password" 
-                    placeholder="Anthropic API Key" 
-                    value={llmKey} 
-                    onChange={e => setLlmKey(e.target.value)}
-                    className="w-full bg-[#0D1117] border border-[#30363D] rounded-md px-2 py-1.5 text-xs text-white focus:outline-none focus:border-[#8B5CF6]" 
-                  />
                   <div className="pt-2 border-t border-[#30363D] flex items-center justify-between">
                     <div className="text-xs text-[#717182]">
-                      Gen: <span className="text-white font-mono">{statusAll?.llm_generator?.logs_generated || 0}</span>
+                      Played: <span className="text-white font-mono">{statusAll?.ueba?.alerts_played || 0}</span>
                     </div>
-                    {llmRunning ? (
-                      <Button variant="outline" size="sm" className="border-red-500/50 text-red-500 hover:bg-red-500/10" onClick={handleStopLlm}>
+                    {uebaRunning ? (
+                      <Button variant="outline" size="sm" className="border-red-500/50 text-red-500 hover:bg-red-500/10" onClick={handleStopUeba}>
                         <Square className="h-4 w-4 mr-1" /> Stop
                       </Button>
                     ) : (
-                      <Button variant="outline" size="sm" className="border-[#8B5CF6]/50 text-[#8B5CF6] hover:bg-[#8B5CF6]/10" onClick={handleStartLlm}>
-                        <BrainCircuit className="h-4 w-4 mr-1" /> Generate
+                      <Button variant="outline" size="sm" className="border-[#8B5CF6]/50 text-[#8B5CF6] hover:bg-[#8B5CF6]/10" onClick={handleStartUeba}>
+                        <Play className="h-4 w-4 mr-1" /> Start Replay
                       </Button>
                     )}
                   </div>
@@ -274,32 +290,32 @@ export function Simulation() {
 
       {/* Section B: Live Feed Terminal */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        {/* HDFS Feed */}
+        {/* SSH Feed */}
         <Card className="flex flex-col h-[400px]">
           <CardHeader className="pb-2 border-b border-[#30363D] flex flex-row items-center justify-between bg-[#161B22] rounded-t-xl">
             <div className="flex items-center gap-2">
               <Database className="h-4 w-4 text-[#D29922]" />
-              <span className="font-semibold text-white">HDFS System Logs</span>
+              <span className="font-semibold text-white">SSH Auth Logs</span>
             </div>
-            <div className={`px-2 py-0.5 text-xs font-mono rounded-full ${hdfsRunning || llmRunning ? 'bg-green-500/20 text-green-400 border border-green-500/50 animate-pulse' : 'bg-gray-800 text-gray-400 border border-gray-700'}`}>
-              {hdfsRunning || llmRunning ? 'LIVE' : 'IDLE'}
+            <div className={`px-2 py-0.5 text-xs font-mono rounded-full ${sshRunning || uebaRunning ? 'bg-green-500/20 text-green-400 border border-green-500/50 animate-pulse' : 'bg-gray-800 text-gray-400 border border-gray-700'}`}>
+              {sshRunning || uebaRunning ? 'LIVE' : 'IDLE'}
             </div>
           </CardHeader>
           <CardContent className="p-0 flex-1 overflow-y-auto bg-[#0D1117] rounded-b-xl flex flex-col-reverse relative">
             <div className="p-2 font-mono text-xs flex flex-col justify-end">
-              {ws.hdfsAlerts.slice(0, 50).reverse().map((a, i) => (
-                <div key={i} className={`py-1 flex gap-2 border-l-2 pl-2 ${a.prediction === 'Anomaly' || a.confidence > 50 ? 'border-red-500 bg-red-900/10 text-red-200' : 'border-[#30363D] text-[#717182]'}`}>
+              {ws.sshAlerts.slice(0, 50).reverse().map((a, i) => (
+                <div key={i} className={`py-1 flex gap-2 border-l-2 pl-2 ${a.prediction !== 'Normal' && a.prediction !== 'BENIGN' ? 'border-red-500 bg-red-900/10 text-red-200' : 'border-[#30363D] text-[#717182]'}`}>
                   <span className="opacity-50">[{new Date().toLocaleTimeString()}]</span>
                   <span className="truncate w-32">{a.id.substring(0, 20)}</span>
-                  <span className="font-bold">{a.prediction === 'Anomaly' ? 'ANOMALY' : 'NORMAL'}</span>
+                  <span className="font-bold uppercase">{a.prediction}</span>
                   <span>[{a.confidence.toFixed(1)}%]</span>
                 </div>
               ))}
             </div>
           </CardContent>
           <div className="px-4 py-2 bg-[#161B22] border-t border-[#30363D] rounded-b-xl flex justify-between text-xs text-[#717182]">
-            <span>Analyzed: {ws.hdfsAlerts.length}</span>
-            <span>Anomalies: {ws.hdfsAlerts.filter(a => a.prediction === 'Anomaly').length}</span>
+            <span>Analyzed: {ws.sshAlerts.length}</span>
+            <span>Anomalies: {ws.sshAlerts.filter(a => a.prediction !== 'Normal' && a.prediction !== 'BENIGN').length}</span>
           </div>
         </Card>
 
@@ -353,14 +369,14 @@ export function Simulation() {
         <CardContent className="p-0 flex flex-col md:flex-row min-h-[400px]">
           {/* Incident Queue (Left 40%) */}
           <div className="w-full md:w-2/5 border-r border-[#30363D] overflow-y-auto max-h-[500px] bg-[#161B22]">
-            {ws.allAlerts.filter(a => a.severity === 'critical' || a.verdict !== 'BENIGN' || a.prediction === 'Anomaly').length === 0 ? (
+            {ws.allAlerts.filter(a => a.severity === 'critical' || (a.source === 'Network' && a.verdict !== 'BENIGN') || (a.source === 'SSH' && a.prediction !== 'Normal') || (a.source === 'UEBA' && a.prediction !== 'Normal')).length === 0 ? (
               <div className="p-8 text-center text-[#717182] flex flex-col items-center gap-2">
                 <ShieldAlert className="h-8 w-8 opacity-20" />
                 <p>Waiting for anomalies to analyze...</p>
               </div>
             ) : (
               <div className="flex flex-col">
-                {ws.allAlerts.filter(a => a.severity === 'critical' || (a.source === 'Network' && a.verdict !== 'BENIGN') || (a.source === 'HDFS' && a.prediction === 'Anomaly')).slice(0,50).map((inc, i) => (
+                {ws.allAlerts.filter(a => a.severity === 'critical' || (a.source === 'Network' && a.verdict !== 'BENIGN') || (a.source === 'SSH' && a.prediction !== 'Normal') || (a.source === 'UEBA' && a.prediction !== 'Normal')).slice(0,50).map((inc, i) => (
                   <div 
                     key={inc.id + i} 
                     onClick={() => setSelectedIncident(inc)}
@@ -373,9 +389,9 @@ export function Simulation() {
                     <div className="font-medium text-white mt-1 text-sm truncate">{inc.title}</div>
                     <div className="flex items-center gap-2 mt-2">
                       <span className="text-[10px] bg-blue-900/40 text-blue-400 px-2 rounded-sm border border-blue-800">
-                        {inc.mitre_id || (inc.source === 'Network' ? 'T1498' : 'T1565')}
+                        {inc.mitre_id || (inc.source === 'Network' ? 'T1498' : 'T1078')}
                       </span>
-                      <span className={`text-[10px] px-2 rounded-sm border ${inc.source === 'Network' ? 'bg-[#2F81F7]/20 text-[#2F81F7] border-[#2F81F7]/40' : 'bg-[#D29922]/20 text-[#D29922] border-[#D29922]/40'}`}>
+                      <span className={`text-[10px] px-2 rounded-sm border ${inc.source === 'Network' ? 'bg-[#2F81F7]/20 text-[#2F81F7] border-[#2F81F7]/40' : inc.source === 'SSH' ? 'bg-[#D29922]/20 text-[#D29922] border-[#D29922]/40' : 'bg-[#8B5CF6]/20 text-[#8B5CF6] border-[#8B5CF6]/40'}`}>
                         {inc.source}
                       </span>
                     </div>

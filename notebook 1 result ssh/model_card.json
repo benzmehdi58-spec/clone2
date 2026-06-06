@@ -1,0 +1,58 @@
+{
+  "model_name": "Auth Log \u2014 CNN-BiLSTM-Attention (v2)",
+  "source": "auth_log",
+  "version": "2.0.0",
+  "created": "2026-06-05T20:07:05.158232",
+  "dataset": "LogHub SSH (omduggineni/loghub-ssh-log-data)",
+  "labeling": "SSH logs self-announce attack type (kernel-level messages)",
+  "architecture": {
+    "name": "CNN-BiLSTM-MultiHeadAttention",
+    "embedding_dim": 128,
+    "cnn_kernels": [
+      3,
+      5
+    ],
+    "bilstm_units": 128,
+    "attention_heads": 4,
+    "attention_key_dim": 32,
+    "dense_units": [
+      256,
+      128
+    ],
+    "activations": "gelu",
+    "dropout": [
+      0.4,
+      0.3
+    ]
+  },
+  "training": {
+    "loss": "FocalLoss(alpha=0.25, gamma=2.0)",
+    "optimizer": "Adam(clipnorm=1.0)",
+    "lr_schedule": "CosineAnnealingWarmRestarts(T_0=10, T_mult=2)",
+    "early_stopping": "MacroF1EarlyStopping(patience=7)",
+    "mixed_precision": "mixed_float16"
+  },
+  "vocab_size": 48,
+  "num_classes": 3,
+  "classes": [
+    "bruteforce",
+    "invalid_user_scan",
+    "normal"
+  ],
+  "max_seq_len": 128,
+  "session_method": "Grouped by source IP (each unique IP = one session)",
+  "performance": {
+    "macro_f1": 0.9853,
+    "weighted_f1": 0.9864
+  },
+  "output_format": {
+    "id": "AUTH-{src_ip}",
+    "block_id": "same as id",
+    "source": "auth_log",
+    "prediction": "Normal or Anomaly",
+    "verdict": "NORMAL or ATTACK",
+    "attack_type": "None | bruteforce | invalid_user_scan",
+    "confidence": "float 0-100",
+    "mitre": "dict with kill_chain_stage and kill_chain_name"
+  }
+}

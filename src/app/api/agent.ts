@@ -205,3 +205,12 @@ export const fetchAlertDetail = async (id: string) => {
   }
 };
 
+export const fetchAlertExplorer = async (id: string) => {
+  try {
+    return await apiFetch(`/api/explorer/${encodeURIComponent(id)}`);
+  } catch (e) {
+    console.warn("fetchAlertExplorer failed", e);
+    return null;
+  }
+};
+

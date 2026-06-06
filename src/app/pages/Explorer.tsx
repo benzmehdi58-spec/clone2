@@ -7,13 +7,13 @@ import { Button } from "../components/ui/Button";
 import { Badge } from "../components/ui/Badge";
 import { Card } from "../components/ui/Card";
 import { cn } from "../utils/cn";
-import { fetchLogs, submitLogForAnalysis } from "../api/agent";
+import { fetchLogs, submitLogForAnalysis, fetchAlertExplorer } from "../api/agent";
 import { COLORS } from "../constants";
 
 const STATUS_OPTIONS = ["all", "anomaly", "normal"] as const;
 type Status = typeof STATUS_OPTIONS[number];
 
-const SOURCE_OPTIONS = ["all", "HDFS", "Network"] as const;
+const SOURCE_OPTIONS = ["all", "HDFS", "Network", "auth_log", "insider_threat"] as const;
 type Source = typeof SOURCE_OPTIONS[number];
 
 const EXAMPLE_LOG = `081109 203518 143 INFO dfs.DataNode$DataXceiver: Receiving block blk_-1608999687919862906 src: /10.250.19.102:54761 dest: /10.250.19.102:50010
@@ -31,6 +31,7 @@ export function Explorer() {
   const [source, setSource]       = useState<Source>("all");
   const [isLoading, setIsLoading] = useState(true);
   const [selectedLog, setSelectedLog] = useState<any | null>(null);
+  const [explorerData, setExplorerData] = useState<any | null>(null);
   const searchTimer               = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // ── Submit-modal state ────────────────────────────────────────────────────
@@ -50,6 +51,15 @@ export function Explorer() {
   }, [page, search, status, source]);
 
   useEffect(() => { load(); }, [load]);
+
+  useEffect(() => {
+    if (selectedLog && (selectedLog.source === "auth_log" || selectedLog.source === "insider_threat")) {
+      setExplorerData(null);
+      fetchAlertExplorer(selectedLog.id).then(res => setExplorerData(res?.logs));
+    } else {
+      setExplorerData(null);
+    }
+  }, [selectedLog]);
 
   // Debounce search input
   const handleSearchInput = (val: string) => {
@@ -216,6 +226,10 @@ export function Explorer() {
                           <Badge variant="outline" className="text-xs gap-1">
                             {log.source === "Network" ? (
                                 <><Network className="h-3 w-3" style={{ color: COLORS.blue }} /> {log.source}</>
+                            ) : log.source === "auth_log" ? (
+                                <><Server className="h-3 w-3" style={{ color: COLORS.purple }} /> SSH</>
+                            ) : log.source === "insider_threat" ? (
+                                <><Server className="h-3 w-3" style={{ color: COLORS.red }} /> UEBA</>
                             ) : (
                                 <><Server className="h-3 w-3" style={{ color: COLORS.amber }} /> {log.source}</>
                             )}
@@ -293,9 +307,15 @@ export function Explorer() {
                     </div>
                   )}
                   <div>
-                    <span className="text-xs text-[#717182] uppercase mb-1 block">Raw Log (first 5 lines)</span>
-                    <div className="p-3 bg-[#0D1117] rounded-md border border-[#30363D] font-mono text-xs text-[#e9ebef] break-all whitespace-pre-wrap">
-                      {selectedLog.raw || selectedLog.preview}
+                    <span className="text-xs text-[#717182] uppercase mb-1 block">Raw Log Data</span>
+                    <div className="p-3 bg-[#0D1117] rounded-md border border-[#30363D] font-mono text-xs text-[#e9ebef] break-all whitespace-pre-wrap max-h-64 overflow-auto custom-scrollbar">
+                      {selectedLog.source === "auth_log" ? (
+                        explorerData ? explorerData.ssh?.join('\n') : "Loading SSH logs..."
+                      ) : selectedLog.source === "insider_threat" ? (
+                        explorerData ? JSON.stringify(explorerData, null, 2) : "Loading UEBA behavior logs..."
+                      ) : (
+                        selectedLog.raw || selectedLog.preview
+                      )}
                     </div>
                   </div>
                 </div>

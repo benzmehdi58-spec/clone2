@@ -10,19 +10,34 @@ async function apiFetch(path: string, opts?: RequestInit) {
 }
 
 export const SimulationApi = {
-  // HDFS
-  startHdfsReplay: async (delay_seconds: number = 2.0) => {
-    return apiFetch("/api/simulate/hdfs/start", {
+  // SSH Auth
+  startSshReplay: async (delay_seconds: number = 2.0) => {
+    return apiFetch("/api/simulate/ssh/start", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ delay_seconds })
     });
   },
-  stopHdfsReplay: async () => {
-    return apiFetch("/api/simulate/hdfs/stop", { method: "POST" });
+  stopSshReplay: async () => {
+    return apiFetch("/api/simulate/ssh/stop", { method: "POST" });
   },
-  getHdfsStatus: async () => {
-    return apiFetch("/api/simulate/hdfs/status");
+  getSshStatus: async () => {
+    return apiFetch("/api/simulate/ssh/status");
+  },
+
+  // UEBA Insider Threat
+  startUebaReplay: async (delay_seconds: number = 2.0) => {
+    return apiFetch("/api/simulate/ueba/start", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ delay_seconds })
+    });
+  },
+  stopUebaReplay: async () => {
+    return apiFetch("/api/simulate/ueba/stop", { method: "POST" });
+  },
+  getUebaStatus: async () => {
+    return apiFetch("/api/simulate/ueba/status");
   },
 
   // Network
@@ -38,18 +53,6 @@ export const SimulationApi = {
   },
   getNetworkStatus: async () => {
     return apiFetch("/api/simulate/network/status");
-  },
-
-  // LLM Generator
-  startLLM: async (params: { attack_type: string, block_count: number, speed: string, api_key: string }) => {
-    return apiFetch("/api/simulate/llm/start", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(params)
-    });
-  },
-  stopLLM: async () => {
-    return apiFetch("/api/simulate/llm/stop", { method: "POST" });
   },
 
   // Combined status

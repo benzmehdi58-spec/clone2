@@ -93,133 +93,6 @@ UEBA_WINDOW_SIZE  = 7
 # ─── Hyperparameters (match notebook exactly) ───────────────────────────────
 MAX_SEQ_LEN = 50
 
-# ─── Event template patterns — ordered most-specific first ────────────────────
-# Each tuple: (compiled regex, exact vocab key)
-PATTERNS = [
-    # PacketResponder variants (most specific first)
-    (re.compile(r'PacketResponder.*Interrupted', re.I),
-     'PacketResponder <*> for block BLK Interrupted.'),
-    (re.compile(r'PacketResponder BLK.*InterruptedIO', re.I),
-     'PacketResponder BLK <*> Exception java.io.InterruptedIOException: Interruped while waiting for IO on channel java.nio.channels.SocketChannel[connected local=IP remote=IP]. <*> millis timeout left.'),
-    (re.compile(r'PacketResponder BLK.*SocketTimeout', re.I),
-     'PacketResponder BLK <*> Exception java.net.SocketTimeoutException: <*> millis timeout while waiting for channel to be ready for read. ch : java.nio.channels.SocketChannel[connected local=IP remote=IP]'),
-    (re.compile(r'PacketResponder BLK.*EOFException', re.I),
-     'PacketResponder BLK <*> Exception java.io.EOFException'),
-    (re.compile(r'PacketResponder BLK.*Connection reset', re.I),
-     'PacketResponder BLK <*> Exception java.io.IOException: Connection reset by peer'),
-    (re.compile(r'PacketResponder BLK.*ClosedByInterrupt', re.I),
-     'PacketResponder BLK <*> Exception java.nio.channels.ClosedByInterruptException'),
-    (re.compile(r'PacketResponder BLK.*Broken pipe', re.I),
-     'PacketResponder BLK <*> Exception java.io.IOException: Broken pipe'),
-    (re.compile(r'PacketResponder BLK.*InterruptedIOException.*closed', re.I),
-     'PacketResponder BLK <*> Exception java.io.InterruptedIOException: Interruped while waiting for IO on channel java.nio.channels.SocketChannel[closed]. <*> millis timeout left.'),
-    (re.compile(r'PacketResponder BLK.*stream is closed', re.I),
-     'PacketResponder BLK <*> Exception java.io.IOException: The stream is closed'),
-    (re.compile(r'PacketResponder.*terminating', re.I),
-     'PacketResponder <*> for block BLK terminating'),
-    (re.compile(r'PacketResponder', re.I),
-     'PacketResponder <*> for block BLK terminating'),
-    # writeBlock variants
-    (re.compile(r'writeBlock.*Connection reset', re.I),
-     'writeBlock BLK received exception java.io.IOException: Connection reset by peer'),
-    (re.compile(r'writeBlock.*Connection reset by peer', re.I),
-     'writeBlock BLK received exception java.io.IOException: Connection reset by peer'),
-    (re.compile(r'writeBlock.*EOFException', re.I),
-     'writeBlock BLK received exception java.io.EOFException'),
-    (re.compile(r'writeBlock.*valid.*cannot be written', re.I),
-     'writeBlock BLK received exception java.io.IOException: Block BLK is valid, and cannot be written to.'),
-    (re.compile(r'writeBlock.*Interrupted receiveBlock', re.I),
-     'writeBlock BLK received exception java.io.IOException: Interrupted receiveBlock'),
-    (re.compile(r'writeBlock.*SocketTimeoutException.*read', re.I),
-     'writeBlock BLK received exception java.net.SocketTimeoutException: <*> millis timeout while waiting for channel to be ready for read. ch : java.nio.channels.SocketChannel[connected local=IP remote=IP]'),
-    (re.compile(r'writeBlock.*SocketTimeoutException.*write', re.I),
-     'writeBlock BLK received exception java.net.SocketTimeoutException: <*> millis timeout while waiting for channel to be ready for write. ch : java.nio.channels.SocketChannel[connected local=IP remote=IP]'),
-    (re.compile(r'writeBlock.*SocketTimeoutException', re.I),
-     'writeBlock BLK received exception java.net.SocketTimeoutException'),
-    (re.compile(r'writeBlock.*ClosedByInterrupt', re.I),
-     'writeBlock BLK received exception java.nio.channels.ClosedByInterruptException'),
-    (re.compile(r'writeBlock.*Broken pipe', re.I),
-     'writeBlock BLK received exception java.io.IOException: Broken pipe'),
-    (re.compile(r'writeBlock.*NoRouteToHost', re.I),
-     'writeBlock BLK received exception java.net.NoRouteToHostException: No route to host'),
-    (re.compile(r'writeBlock.*InterruptedIO', re.I),
-     'writeBlock BLK received exception java.io.InterruptedIOException: Interruped while waiting for IO on channel java.nio.channels.SocketChannel[connected local=IP remote=IP]. <*> millis timeout left.'),
-    # receiveBlock / Exception in receiveBlock
-    (re.compile(r'Exception in receiveBlock.*Connection reset', re.I),
-     'Exception in receiveBlock for block BLK java.io.IOException: Connection reset by peer'),
-    (re.compile(r'Exception in receiveBlock.*EOFException', re.I),
-     'Exception in receiveBlock for block BLK java.io.EOFException'),
-    (re.compile(r'Exception in receiveBlock.*ClosedByInterrupt', re.I),
-     'Exception in receiveBlock for block BLK java.nio.channels.ClosedByInterruptException'),
-    (re.compile(r'Exception in receiveBlock.*SocketTimeout.*write', re.I),
-     'Exception in receiveBlock for block BLK java.net.SocketTimeoutException: <*> millis timeout while waiting for channel to be ready for write. ch : java.nio.channels.SocketChannel[connected local=IP remote=IP]'),
-    (re.compile(r'Exception in receiveBlock.*InterruptedIO', re.I),
-     'Exception in receiveBlock for block BLK java.io.InterruptedIOException: Interruped while waiting for IO on channel java.nio.channels.SocketChannel[connected local=IP remote=IP]. <*> millis timeout left.'),
-    (re.compile(r'Exception in receiveBlock.*Broken pipe', re.I),
-     'Exception in receiveBlock for block BLK java.io.IOException: Broken pipe'),
-    # Received / Receiving block
-    (re.compile(r'Received block.*src:.*dest:.*size', re.I),
-     'Received block BLK src: IP dest: IP of size <*>'),
-    (re.compile(r'Received block.*of size.*from', re.I),
-     'Received block BLK of size <*> from IP'),
-    (re.compile(r'Received block', re.I),
-     'Received block BLK of size <*> from IP'),
-    (re.compile(r'Receiving empty packet', re.I),
-     'Receiving empty packet for block BLK'),
-    (re.compile(r'Receiving block', re.I),
-     'Receiving block BLK src: IP dest: IP'),
-    # BLOCK* NameSystem
-    (re.compile(r'BLOCK.*NameSystem\.allocateBlock', re.I),
-     'BLOCK* NameSystem.allocateBlock: PATH BLK'),
-    (re.compile(r'BLOCK.*addStoredBlock.*request received.*does not belong', re.I),
-     'BLOCK* NameSystem.addStoredBlock: addStoredBlock request received for BLK on IP size <*> But it does not belong to any file.'),
-    (re.compile(r'BLOCK.*addStoredBlock.*Redundant', re.I),
-     'BLOCK* NameSystem.addStoredBlock: Redundant addStoredBlock request received for BLK on IP size <*>'),
-    (re.compile(r'BLOCK.*addStoredBlock', re.I),
-     'BLOCK* NameSystem.addStoredBlock: blockMap updated: IP is added to BLK size <*>'),
-    (re.compile(r'BLOCK.*NameSystem\.delete', re.I),
-     'BLOCK* NameSystem.delete: BLK is added to invalidSet of IP'),
-    (re.compile(r'BLOCK.*ask.*replicate.*IP IP', re.I),
-     'BLOCK* ask IP to replicate BLK to datanode(s) IP IP'),
-    (re.compile(r'BLOCK.*ask.*replicate', re.I),
-     'BLOCK* ask IP to replicate BLK to datanode(s) IP'),
-    (re.compile(r'BLOCK.*Removing block.*neededReplication', re.I),
-     'BLOCK* Removing block BLK from neededReplications as it does not belong to any file.'),
-    # Deleting / block file operations
-    (re.compile(r'Deleting block', re.I),
-     'Deleting block BLK file PATH'),
-    (re.compile(r'Changing block file offset', re.I),
-     'Changing block file offset of block BLK from <*> to <*> meta file offset to <*>'),
-    (re.compile(r'Unexpected error.*delete block', re.I),
-     'Unexpected error trying to delete block BLK. BlockInfo not found in volumeMap.'),
-    (re.compile(r'Adding an already existing block', re.I),
-     'Adding an already existing block BLK'),
-    (re.compile(r'PendingReplication.*timed out', re.I),
-     'PendingReplicationMonitor timed out block BLK'),
-    (re.compile(r'Reopen Block', re.I),
-     'Reopen Block BLK'),
-    # Transfer
-    (re.compile(r'Starting thread to transfer.*IP, IP', re.I),
-     'IP Starting thread to transfer block BLK to IP, IP'),
-    (re.compile(r'Starting thread to transfer', re.I),
-     'IP Starting thread to transfer block BLK to IP'),
-    (re.compile(r'Transmitted block', re.I),
-     'IP:Transmitted block BLK to IP'),
-    (re.compile(r'Failed to transfer', re.I),
-     'IP:Failed to transfer BLK to IP got java.io.IOException: Connection reset by peer'),
-    (re.compile(r'Exception writing block.*mirror', re.I),
-     'IP:Exception writing block BLK to mirror IP'),
-    # Served / Got exception
-    (re.compile(r'Served block', re.I),
-     'IP Served block BLK to IP'),
-    (re.compile(r'Got exception.*serving', re.I),
-     'IP:Got exception while serving BLK to IP:'),
-    # Verification
-    (re.compile(r'Verification.*succeeded', re.I),
-     'Verification succeeded for BLK'),
-]
-
-
 # ─── FocalLoss shim (needed by load_model for both SSH and UEBA Keras models) ───
 if tf is not None:
     class _FocalLoss(tf.keras.losses.Loss):
@@ -247,12 +120,9 @@ BLOCK_RE = re.compile(r'(blk_-?\d+)')
 
 # ─── Global state (populated at startup) ────────────────────────────────────
 state: dict = {
-    # ─ HDFS (original) ─────────────────────────────────────────────
-    "model":         None,
-    "vocab":         None,
     "logs":          [],    # unified log explorer — all sources feed into here
-    "metrics":       {},    # HDFS model metrics
-    # ─ Network (original) ────────────────────────────────────────
+    "metrics":       {},
+    # ─ Network ────────────────────────────────────────
     "net_pipeline":  None,
     "net_metrics":   {},
     "net_logs":      [],
@@ -260,9 +130,11 @@ state: dict = {
     "incidents":     {},
     "alert_buffer":  [],    # high-confidence alerts for correlation engine
     "net_simulator":  None,
-    "hdfs_simulator": None,
+    "ssh_simulator": None,
+    "ueba_simulator": None,
     "net_stop_event":  None,
-    "hdfs_stop_event": None,
+    "ssh_stop_event": None,
+    "ueba_stop_event": None,
     # ─ Model A: SSH Auth Log Detector ─────────────────────────────
     "ssh_model":     None,   # Keras CNN-BiLSTM (optional — for live inference)
     "ssh_vocab":     None,   # {template_str: int_index}
@@ -279,194 +151,11 @@ state: dict = {
 }
 
 
-# ─── Helpers ─────────────────────────────────────────────────────────────────
-
-def parse_event(line: str, vocab: dict) -> str:
-    """Map a raw log line to the exact vocab key (Drain template string)."""
-    for pattern, template in PATTERNS:
-        if pattern.search(line):
-            if template in vocab:
-                return template
-    return '<UNK>'
-
-
-MAX_SEQ_LEN = 100
-
-def encode_and_pad(tokens: list[str], vocab: dict) -> np.ndarray:
-    seq = [vocab.get(t, 0) for t in tokens]
-    return pad_sequences([seq], maxlen=MAX_SEQ_LEN, padding='post', truncating='post')
-
-
-def predict_session(tokens: list[str], model, vocab: dict) -> tuple[str, float]:
-    """Run LSTM on a list of event tokens. Returns (label, confidence 0-100)."""
-    padded = encode_and_pad(tokens, vocab)
-    prob = float(model.predict(padded, verbose=0)[0][0])
-    label = "Anomaly" if prob >= 0.5 else "Normal"
-    confidence = round((prob if prob >= 0.5 else 1.0 - prob) * 100, 1)
-    return label, confidence
-
-
-def parse_raw_log_to_tokens(raw: str, vocab: dict) -> list[str]:
-    """Parse a multi-line raw log text into event tokens matching the vocab."""
-    # Handle both newline-separated and concatenated formats
-    ENTRY_RE = re.compile(r'(?=\d{6}\s\d{6}\s\d+\s)')
-    parts = ENTRY_RE.split(raw)
-    if len(parts) <= 1:
-        # Fallback: split on newlines
-        parts = raw.strip().split('\n')
-    return [parse_event(p.strip(), vocab) for p in parts if p.strip()]
-
-
 # ─── Startup: load models + pre-process all inference data ───────────────────
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    print("[*] Loading LSTM model and vocabulary...")
-    model = load_model(str(MODEL_PATH))
-    vocab = joblib.load(str(VOCAB_PATH))
-    state["model"] = model
-    state["vocab"] = vocab
-    print(f"[OK] Model loaded. Vocab size: {len(vocab)}")
-
-    database.init_db()
-
-    print("[*] Parsing inference_samples.txt ...")
-    # The file has no newlines — split on HDFS timestamp pattern (YYMMDD HHMMSS threadID)
-    ENTRY_RE = re.compile(r'(?=\d{6}\s\d{6}\s\d+\s)')
-    block_lines: dict[str, list[str]] = defaultdict(list)
-    try:
-        with open(SAMPLES_PATH, "r", encoding="utf-8", errors="ignore") as f:
-            raw = f.read()
-        entries = ENTRY_RE.split(raw)
-        for entry in entries:
-            entry = entry.strip()
-            if not entry:
-                continue
-            match = BLOCK_RE.search(entry)
-            if match:
-                block_id = match.group(1)
-                block_lines[block_id].append(entry)
-        print(f"    Found {len(block_lines)} unique block sessions")
-    except FileNotFoundError:
-        print(f"[WARN] inference_samples.txt not found at {SAMPLES_PATH} — HDFS replay disabled")
-
-    # Load ground truth labels
-    label_map = {}
-    try:
-        labels_df = pd.read_csv(LABELS_PATH)
-        label_map = dict(zip(labels_df["block_id"], labels_df["Label"]))
-    except FileNotFoundError:
-        print(f"[WARN] inference_labels.csv not found at {LABELS_PATH} — labels disabled")
-
-    logs = []
-    y_true, y_pred = [], []
-    if block_lines:
-        print("[*] Running batch LSTM inference on all sessions...")
-
-        block_ids = list(block_lines.keys())
-        # Batch predict for speed
-        all_tokens = [[parse_event(line, vocab) for line in block_lines[bid]] for bid in block_ids]
-        all_seqs   = [encode_and_pad(toks, vocab) for toks in all_tokens]
-        X_batch    = np.vstack(all_seqs)                        # shape: (N, MAX_SEQ_LEN)
-        
-        if hasattr(model, 'is_mock') and getattr(model, 'is_mock'):
-            # Simulate high-accuracy predictions based on the ground truth
-            probs = []
-            for bid in block_ids:
-                truth = label_map.get(bid, "Normal")
-                # 99% accuracy simulation
-                if truth == "Anomaly":
-                    probs.append(np.random.uniform(0.6, 0.99) if np.random.rand() < 0.98 else np.random.uniform(0.1, 0.4))
-                else:
-                    probs.append(np.random.uniform(0.01, 0.4) if np.random.rand() < 0.99 else np.random.uniform(0.6, 0.9))
-            probs = np.array(probs)
-        else:
-            probs      = model.predict(X_batch, batch_size=512, verbose=1).flatten()
-
-        for i, bid in enumerate(block_ids):
-            prob  = float(probs[i])
-            label = "Anomaly" if prob >= 0.5 else "Normal"
-            conf  = round((prob if prob >= 0.5 else 1.0 - prob) * 100, 1)
-            truth = label_map.get(bid, "Normal")
-
-            raw_preview = block_lines[bid][0] if block_lines[bid] else ""
-
-            logs.append({
-                "block_id":   bid,
-                "source":     "HDFS",
-                "label":      label,
-                "confidence": conf,
-                "truth":      truth,
-                "raw":        "\n".join(block_lines[bid][:5]),  # first 5 entries as preview
-                "preview":    raw_preview[:120],
-                "event_count": len(block_lines[bid]),
-            })
-
-            y_true.append(1 if truth == "Anomaly" else 0)
-            y_pred.append(1 if label == "Anomaly" else 0)
-
-    state["logs"] = logs
-    print(f"[OK] Inference complete on {len(logs)} sessions")
-
-    # ── Compute real metrics ──────────────────────────────────────────────
-    y_true_arr = np.array(y_true)
-    y_pred_arr = np.array(y_pred)
-
-    TP = int(np.sum((y_pred_arr == 1) & (y_true_arr == 1)))
-    TN = int(np.sum((y_pred_arr == 0) & (y_true_arr == 0)))
-    FP = int(np.sum((y_pred_arr == 1) & (y_true_arr == 0)))
-    FN = int(np.sum((y_pred_arr == 0) & (y_true_arr == 1)))
-
-    precision = round(TP / (TP + FP + 1e-9) * 100, 2)
-    recall    = round(TP / (TP + FN + 1e-9) * 100, 2)
-    f1        = round(2 * precision * recall / (precision + recall + 1e-9), 2)
-    accuracy  = round((TP + TN) / (len(y_true) + 1e-9) * 100, 2)
-
-    # ROC curve (simplified 10-point)
-    thresholds = np.linspace(0, 1, 10)
-    probs_arr  = probs[:len(y_true)]
-    roc_data   = []
-    for t in thresholds:
-        preds_t = (probs_arr >= t).astype(int)
-        tp_t = int(np.sum((preds_t == 1) & (y_true_arr == 1)))
-        fp_t = int(np.sum((preds_t == 1) & (y_true_arr == 0)))
-        fn_t = int(np.sum((preds_t == 0) & (y_true_arr == 1)))
-        tn_t = int(np.sum((preds_t == 0) & (y_true_arr == 0)))
-        tpr  = round(tp_t / (tp_t + fn_t + 1e-9), 4)
-        fpr  = round(fp_t / (fp_t + tn_t + 1e-9), 4)
-        roc_data.append({"fpr": fpr, "tpr": tpr})
-    roc_data.sort(key=lambda x: x["fpr"])
-
-    # AUC (trapezoid)
-    auc = round(float(np.trapz([p["tpr"] for p in roc_data], [p["fpr"] for p in roc_data])), 3)
-
-    # Daily accuracy drift (simulate 30 day window using shuffled subsets)
-    np.random.seed(42)
-    drift_data = []
-    chunk_size = max(1, len(y_true) // 30)
-    for day in range(30):
-        start = day * chunk_size
-        end   = min(start + chunk_size, len(y_true))
-        if start >= len(y_true):
-            break
-        chunk_true = y_true_arr[start:end]
-        chunk_pred = y_pred_arr[start:end]
-        acc = round(float(np.mean(chunk_true == chunk_pred)) * 100, 2)
-        drift_data.append({"day": f"Day {day + 1}", "accuracy": acc})
-
-    state["metrics"] = {
-        "precision": precision,
-        "recall":    recall,
-        "f1":        f1,
-        "accuracy":  accuracy,
-        "TP": TP, "TN": TN, "FP": FP, "FN": FN,
-        "auc":       auc,
-        "roc_data":  roc_data,
-        "drift_data": drift_data,
-    }
-
-    print(f"[METRICS] Precision: {precision}%  Recall: {recall}%  F1: {f1}%  Accuracy: {accuracy}%")
-    print(f"    Confusion  TP:{TP}  TN:{TN}  FP:{FP}  FN:{FN}")
+    print("[*] HDFS model has been removed. Proceeding with Network, SSH, and UEBA.")
 
     # ─── Network pipeline ────────────────────────────────────────────────────
     if _NET_PIPELINE_AVAILABLE:
@@ -509,11 +198,13 @@ async def lifespan(app: FastAPI):
         print(f"[RAGAnalyzer] Not available: {e}")
 
     try:
-        from simulators import NetworkScenarioSimulator, HDFSReplayEngine
+        from simulators import NetworkScenarioSimulator, SSHReplayEngine, UEBAReplayEngine
         state["net_simulator"] = NetworkScenarioSimulator()
-        state["hdfs_simulator"] = HDFSReplayEngine(SAMPLES_PATH)
+        state["ssh_simulator"] = SSHReplayEngine(str(BASE_DIR / "data" / "ssh_inference_samples.txt"))
+        state["ueba_simulator"] = UEBAReplayEngine(str(BASE_DIR / "data" / "ueba_inference_results.json"))
         state["net_stop_event"] = asyncio.Event()
-        state["hdfs_stop_event"] = asyncio.Event()
+        state["ssh_stop_event"] = asyncio.Event()
+        state["ueba_stop_event"] = asyncio.Event()
     except Exception as e:
         print(f"[Simulators] Not available: {e}")
 
@@ -524,9 +215,12 @@ async def lifespan(app: FastAPI):
             _ssh_results = _json.load(_f)
         for _r in _ssh_results:
             _r.setdefault("source",          "auth_log")
+            _r.setdefault("id", _r.get("block_id", "AUTH-" + _r.get("src_ip", "")))
             _r.setdefault("event_count",     1)
             _r.setdefault("label",  "Anomaly" if _r.get("verdict") == "ATTACK" else "Normal")
             _r["timestamp_epoch"] = __import__("time").time()
+            if _r.get("verdict") == "ATTACK":
+                database.save_alert(_r)
         state["ssh_logs"] = _ssh_results
         state["logs"].extend(_ssh_results)
         _n     = len(_ssh_results)
@@ -565,6 +259,7 @@ async def lifespan(app: FastAPI):
         # Normalise verdict: THREAT → ATTACK, NORMAL → BENIGN
         for _r in _ueba_results:
             _r.setdefault("source", "insider_threat")
+            _r.setdefault("id", _r.get("block_id", "UEBA-" + _r.get("user_id", "")))
             if _r.get("verdict") == "THREAT":
                 _r["verdict"] = "ATTACK"
             elif _r.get("verdict") == "NORMAL":
@@ -572,6 +267,8 @@ async def lifespan(app: FastAPI):
             _r.setdefault("label", "Anomaly" if _r.get("verdict") == "ATTACK" else "Normal")
             _r.setdefault("event_count", UEBA_WINDOW_SIZE)
             _r["timestamp_epoch"] = __import__("time").time()
+            if _r.get("verdict") == "ATTACK":
+                database.save_alert(_r)
         state["ueba_logs"] = _ueba_results
         state["logs"].extend(_ueba_results)
         _n      = len(_ueba_results)
@@ -634,6 +331,9 @@ class ConnectionManager:
             self.active_connections.remove(websocket)
 
     async def broadcast(self, message: dict):
+        if "type" not in message and "data" not in message:
+            message = {"type": "new_alert", "data": message}
+            
         for connection in self.active_connections:
             try:
                 await connection.send_json(message)
@@ -700,6 +400,45 @@ def get_logs(
         "pages": pages,
     }
 
+@app.get("/api/explorer/{alert_id}")
+def get_alert_explorer(alert_id: str):
+    # Serves the raw log evidence for the frontend Log Explorer
+    if alert_id.startswith("UEBA-"):
+        user_id = alert_id.split("-", 1)[1] if "-" in alert_id else alert_id
+        try:
+            import sqlite3
+            conn = sqlite3.connect(database.DB_PATH)
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+            cursor.execute("SELECT date, log_type, activity, filename, email_to, url, content FROM ueba_logs WHERE user = ? LIMIT 150", (user_id,))
+            rows = cursor.fetchall()
+            conn.close()
+            
+            result = {"device": [], "email": [], "file": [], "http": [], "logon": []}
+            for r in rows:
+                row_dict = dict(r)
+                ltype = row_dict.pop("log_type")
+                if ltype in result:
+                    result[ltype].append(row_dict)
+            return {"user_id": user_id, "logs": result}
+        except Exception as e:
+            from fastapi import HTTPException
+            raise HTTPException(status_code=500, detail=str(e))
+            
+    elif alert_id.startswith("AUTH-"):
+        ip_address = alert_id.split("-", 1)[1] if "-" in alert_id else alert_id
+        try:
+            matched_lines = []
+            with open(_DATA_DIR / "ssh_inference_samples.txt", "r", encoding="utf-8") as f:
+                for line in f:
+                    if ip_address in line:
+                        matched_lines.append(line.strip())
+            return {"ip_address": ip_address, "logs": {"ssh": matched_lines[:100]}}
+        except Exception as e:
+            from fastapi import HTTPException
+            raise HTTPException(status_code=500, detail=str(e))
+            
+    return {"error": "Explorer not implemented for this source type"}
 
 @app.get("/api/alerts")
 def get_alerts(filter: Optional[str] = Query(None)):
@@ -959,85 +698,7 @@ def get_dashboard():
     }
 
 
-@app.post("/api/analyze")
-async def analyze_log(req: AnalyzeRequest, background_tasks: BackgroundTasks, request: Request):
-    model = state["model"]
-    vocab = state["vocab"]
-    if model is None or vocab is None:
-        raise HTTPException(status_code=503, detail="Model not loaded yet")
 
-    tokens = parse_raw_log_to_tokens(req.raw_log, vocab)
-    if not tokens:
-        raise HTTPException(status_code=400, detail="No parseable log lines found")
-
-    label, confidence = predict_session(tokens, model, vocab)
-
-    prediction_result = {
-        "success":    True,
-        "prediction": label,
-        "confidence": confidence,
-        "tokens":     tokens,
-        "message":    f"Analyzed {len(tokens)} log event(s) using LSTM model.",
-        "source":     "HDFS"
-    }
-    
-    # Enrich with MITRE data
-    prediction_result = mitre_mapper.enrich_hdfs(prediction_result)
-    
-    if request.app.state.rag_analyzer:
-        prediction_result = await asyncio.to_thread(
-            request.app.state.rag_analyzer.analyze, prediction_result
-        )
-    
-    from agent_router import run_agent
-    if prediction_result.get("verdict") != "BENIGN" and prediction_result.get("prediction") != "Normal":
-        import time as _time
-        # Format explicitly for DB
-        prediction_result["title"] = "HDFS System Anomaly (Manual)"
-        prediction_result["severity"] = "critical" if prediction_result.get("confidence", 0) > 85 else "warning"
-        prediction_result["time"] = "Real-time"
-        prediction_result["id"] = prediction_result.get("block_id") or f"MANUAL-HDFS-{int(_time.time()*1000)}"
-        
-        database.save_alert(prediction_result)
-        state["alert_buffer"].append(prediction_result)
-        asyncio.create_task(manager.broadcast(prediction_result))
-        background_tasks.add_task(run_agent, trigger_payload=prediction_result, app_state=request.app.state)
-
-    return prediction_result
-
-
-@app.get("/api/model/system")
-def get_system_model_metrics():
-    m = state["metrics"]
-    if not m:
-        raise HTTPException(status_code=503, detail="Metrics not computed yet")
-
-    return {
-        "metrics": [
-            {"label": "Precision", "val": f"{m['precision']:.1f}%",
-             "trend": "+real", "up": True},
-            {"label": "Recall",    "val": f"{m['recall']:.1f}%",
-             "trend": "+real", "up": True},
-            {"label": "F1-Score",  "val": f"{m['f1']:.1f}%",
-             "trend": "+real", "up": True},
-        ],
-        "confusionMatrix": {
-            "TP": m["TP"], "TN": m["TN"], "FP": m["FP"], "FN": m["FN"]
-        },
-        "auc":       m["auc"],
-        "rocData":   m["roc_data"],
-        "driftData": m["drift_data"],
-        "featureImportance": [
-            {"feature": "PacketResponder",    "value": 0.82},
-            {"feature": "ReceivingBlock",     "value": 0.76},
-            {"feature": "AddStoredBlock",     "value": 0.61},
-            {"feature": "Exception",          "value": 0.59},
-            {"feature": "AllocateBlock",      "value": 0.52},
-            {"feature": "ReceivedBlock",      "value": 0.44},
-            {"feature": "DataXceiver",        "value": 0.38},
-            {"feature": "PacketResponder_term","value": 0.31},
-        ],
-    }
 
 
 # ─── Network pipeline endpoints ────────────────────────────────────────────────────
@@ -1448,7 +1109,7 @@ class NetworkSimRequest(BaseModel):
     flows_per_second: float = 1.0
 
 @app.post("/api/simulate/network/start")
-async def start_network_sim(req: NetworkSimRequest, background_tasks: BackgroundTasks):
+async def start_network_sim(req: NetworkSimRequest, background_tasks: BackgroundTasks, request: Request):
     sim = state.get("net_simulator")
     if not sim:
         raise HTTPException(status_code=503, detail="Simulator not available")
@@ -1459,12 +1120,11 @@ async def start_network_sim(req: NetworkSimRequest, background_tasks: Background
     state["net_stop_event"].clear()
     
     async def network_callback(flow: dict):
-        import httpx
-        async with httpx.AsyncClient() as client:
-            try:
-                await client.post("http://localhost:8000/api/predict/network", json={"flows": [flow]})
-            except Exception as e:
-                print(f"[Sim] Error sending flow: {e}")
+        try:
+            flow_req = NetworkFlowRequest(flows=[flow])
+            await predict_network(flow_req, background_tasks, request)
+        except Exception as e:
+            print(f"[Sim] Error sending flow: {e}")
 
     background_tasks.add_task(sim.run_scenario, req.scenario, network_callback, state["net_stop_event"], req.flows_per_second)
     return {"status": "started", "scenario": req.scenario}
@@ -1482,41 +1142,82 @@ async def network_sim_status():
         return await sim.get_status()
     return {"active": False}
 
-class HdfsSimRequest(BaseModel):
+class SshSimRequest(BaseModel):
     delay_seconds: float = 2.0
 
-@app.post("/api/simulate/hdfs/start")
-async def start_hdfs_sim(req: HdfsSimRequest, background_tasks: BackgroundTasks):
-    sim = state.get("hdfs_simulator")
+@app.post("/api/simulate/ssh/start")
+async def start_ssh_sim(req: SshSimRequest, background_tasks: BackgroundTasks, request: Request):
+    sim = state.get("ssh_simulator")
     if not sim:
-        raise HTTPException(status_code=503, detail="Simulator not available")
+        raise HTTPException(status_code=503, detail="SSH Simulator not available")
         
     if sim.active:
         return {"status": "already running"}
         
     sim.delay_seconds = req.delay_seconds
-    state["hdfs_stop_event"].clear()
+    state["ssh_stop_event"].clear()
     
-    async def hdfs_callback(raw_log: str):
-        import httpx
-        async with httpx.AsyncClient() as client:
-            try:
-                await client.post("http://localhost:8000/api/analyze", json={"raw_log": raw_log})
-            except Exception as e:
-                print(f"[Sim] Error sending log: {e}")
+    async def ssh_callback(ip: str, session_log: str):
+        try:
+            auth_req = AuthLogRequest(raw_log=session_log, src_ip=ip)
+            await predict_auth(auth_req, background_tasks, request)
+        except Exception as e:
+            print(f"[Sim] Error sending SSH log: {e}")
 
-    background_tasks.add_task(sim.start, hdfs_callback, state["hdfs_stop_event"])
+    background_tasks.add_task(sim.start, ssh_callback, state["ssh_stop_event"])
     return {"status": "started"}
 
-@app.post("/api/simulate/hdfs/stop")
-async def stop_hdfs_sim():
-    if state.get("hdfs_stop_event"):
-        state["hdfs_stop_event"].set()
+@app.post("/api/simulate/ssh/stop")
+async def stop_ssh_sim():
+    if state.get("ssh_stop_event"):
+        state["ssh_stop_event"].set()
     return {"status": "stopped"}
 
-@app.get("/api/simulate/hdfs/status")
-async def hdfs_sim_status():
-    sim = state.get("hdfs_simulator")
+@app.get("/api/simulate/ssh/status")
+async def ssh_sim_status():
+    sim = state.get("ssh_simulator")
+    if sim:
+        return await sim.get_status()
+    return {"active": False}
+
+class UebaSimRequest(BaseModel):
+    delay_seconds: float = 3.0
+
+@app.post("/api/simulate/ueba/start")
+async def start_ueba_sim(req: UebaSimRequest, background_tasks: BackgroundTasks, request: Request):
+    sim = state.get("ueba_simulator")
+    if not sim:
+        raise HTTPException(status_code=503, detail="UEBA Simulator not available")
+        
+    if sim.active:
+        return {"status": "already running"}
+        
+    sim.delay_seconds = req.delay_seconds
+    state["ueba_stop_event"].clear()
+    
+    async def ueba_callback(alert: dict):
+        state["ueba_logs"].append(alert)
+        state["ueba_logs"] = state["ueba_logs"][-500:]
+        state["logs"].append(alert)
+        
+        database.save_alert(alert)
+        state["alert_buffer"].append(alert)
+        asyncio.create_task(manager.broadcast(alert))
+        from agent_router import run_agent
+        background_tasks.add_task(run_agent, trigger_payload=alert, app_state=request.app.state)
+
+    background_tasks.add_task(sim.start, ueba_callback, state["ueba_stop_event"])
+    return {"status": "started"}
+
+@app.post("/api/simulate/ueba/stop")
+async def stop_ueba_sim():
+    if state.get("ueba_stop_event"):
+        state["ueba_stop_event"].set()
+    return {"status": "stopped"}
+
+@app.get("/api/simulate/ueba/status")
+async def ueba_sim_status():
+    sim = state.get("ueba_simulator")
     if sim:
         return await sim.get_status()
     return {"active": False}
@@ -1524,11 +1225,13 @@ async def hdfs_sim_status():
 @app.get("/api/simulate/status/all")
 async def get_all_sim_status():
     net_sim = state.get("net_simulator")
-    hdfs_sim = state.get("hdfs_simulator")
+    ssh_sim = state.get("ssh_simulator")
+    ueba_sim = state.get("ueba_simulator")
     
     return {
         "network": await net_sim.get_status() if net_sim else {"active": False},
-        "hdfs": await hdfs_sim.get_status() if hdfs_sim else {"active": False}
+        "ssh": await ssh_sim.get_status() if ssh_sim else {"active": False},
+        "ueba": await ueba_sim.get_status() if ueba_sim else {"active": False}
     }
 
 
@@ -1591,3 +1294,9 @@ try:
     app.include_router(agent_router)
 except ImportError:
     print("[WARN] agent_router not found, skipping agent routes")
+
+# Force reload
+
+# Force reload 2
+
+# Force reload 3

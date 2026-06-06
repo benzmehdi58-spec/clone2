@@ -7,9 +7,9 @@ from typing import Callable, AsyncGenerator
 
 import httpx
 
-# ─── HDFS Replay Engine ──────────────────────────────────────────────────────────
+# ─── SSH Replay Engine ──────────────────────────────────────────────────────────
 
-class HDFSReplayEngine:
+class SSHReplayEngine:
     def __init__(self, samples_path: str, delay_seconds: float = 2.0):
         self.samples_path = samples_path
         self.delay_seconds = delay_seconds
@@ -20,42 +20,54 @@ class HDFSReplayEngine:
         self._load_samples()
 
     def _load_samples(self):
-        ENTRY_RE = re.compile(r'(?=\d{6}\s\d{6}\s\d+\s)')
-        BLOCK_RE = re.compile(r'(blk_-?\d+)')
-        block_lines = defaultdict(list)
+        import re
+        IP_REGEX = re.compile(r'\bfrom\s+((?:\d{1,3}\.){3}\d{1,3})\b')
         try:
             with open(self.samples_path, "r", encoding="utf-8", errors="ignore") as f:
-                raw = f.read()
-            entries = ENTRY_RE.split(raw)
-            for entry in entries:
-                entry = entry.strip()
-                if not entry:
-                    continue
-                match = BLOCK_RE.search(entry)
-                if match:
-                    block_lines[match.group(1)].append(entry)
-            self.sessions = list(block_lines.values())
+                raw_lines = f.readlines()
+            
+            current_ip = None
+            current_session = []
+            
+            for line in raw_lines:
+                line = line.strip()
+                if not line: continue
+                m = IP_REGEX.search(line)
+                ip = m.group(1) if m else current_ip
+                
+                # If IP changed and we have a session, save it
+                if ip != current_ip and current_session:
+                    self.sessions.append((current_ip, "\n".join(current_session)))
+                    current_session = []
+                    
+                current_ip = ip
+                current_session.append(line)
+                
+            if current_session:
+                self.sessions.append((current_ip, "\n".join(current_session)))
+                
+            print(f"[SSHReplayEngine] Loaded {len(self.sessions)} SSH sessions.")
         except Exception as e:
-            print(f"[HDFSReplayEngine] Error loading samples: {e}")
+            print(f"[SSHReplayEngine] Error loading samples: {e}")
 
     async def start(self, callback: Callable, stop_event: asyncio.Event):
         self.active = True
         self.current_index = 0
         
         if not self.sessions:
-            print("[HDFSReplayEngine] No sessions loaded.")
+            print("[SSHReplayEngine] No sessions loaded.")
             self.active = False
             return
             
         while not stop_event.is_set():
-            session_lines = self.sessions[self.current_index]
+            ip, session_log = self.sessions[self.current_index]
             try:
                 if asyncio.iscoroutinefunction(callback):
-                    await callback("\n".join(session_lines))
+                    await callback(ip, session_log)
                 else:
-                    callback("\n".join(session_lines))
+                    callback(ip, session_log)
             except Exception as e:
-                print(f"[HDFSReplayEngine] Error in callback: {e}")
+                print(f"[SSHReplayEngine] Error in callback: {e}")
             
             self.sessions_played += 1
             self.current_index = (self.current_index + 1) % len(self.sessions)
@@ -130,7 +142,14 @@ class NetworkScenarioSimulator:
             sub_df = self.df  # sample everything
         else:
             if "label_multi" in self.df.columns:
-                sub_df = self.df[self.df["label_multi"].isin(target_labels)]
+                import joblib
+                try:
+                    le = joblib.load("artifacts/network/label_encoder.pkl")
+                    target_ints = [i for i, cls in enumerate(le.classes_) if cls in target_labels]
+                    sub_df = self.df[self.df["label_multi"].isin(target_ints)]
+                except Exception as e:
+                    print(f"[NetworkSimulator] Error mapping labels: {e}")
+                    sub_df = self.df[self.df["label_binary"] == 1]
             else:
                 sub_df = self.df[self.df["label_binary"] == 1]
                 
@@ -175,73 +194,72 @@ class NetworkScenarioSimulator:
             "flows_sent": self.flows_sent
         }
 
-# ─── LLM Log Generator ───────────────────────────────────────────────────────────
+# ─── UEBA Replay Engine ─────────────────────────────────────────────────────────
 
-async def llm_generate_hdfs_logs(
-    block_count: int,
-    attack_type: str,
-    api_key: str,
-    speed: str
-) -> AsyncGenerator[list[str], None]:
-    
-    speed_map = {"slow": 3.0, "medium": 1.5, "fast": 0.5}
-    delay = speed_map.get(speed, 1.5)
-    
-    system_prompt = (
-        "You are an HDFS log generator. Output ONLY raw HDFS log lines, "
-        "nothing else, no explanations. Format exactly: "
-        "YYMMDD HHMMSS <pid> <LEVEL> dfs.<Component>: <message containing blk_<id>>"
-    )
-    
-    guidance = {
-        "normal": "Make them look like standard block allocation, replication, and deletion without errors.",
-        "exfiltration": "Include unusual high-volume read requests, possibly multiple rapid reads of the same block from strange IPs.",
-        "deletion": "Include multiple rapid 'Deleting block' logs and NameSystem.delete logs bypassing normal workflows.",
-        "replication": "Include unauthorized replication requests, or addStoredBlock requests that do not belong to any file."
-    }
-    
-    user_prompt = (
-        f"Generate {block_count} log sessions for a {attack_type} scenario. "
-        f"Each session is 5-15 lines for the same blk_<random_id>. "
-        f"For {attack_type} sessions make the event patterns subtly anomalous: "
-        f"{guidance.get(attack_type, '')}\n"
-        "Separate each session with a blank line."
-    )
-    
-    try:
-        async with httpx.AsyncClient() as client:
-            response = await client.post(
-                "https://api.anthropic.com/v1/messages",
-                headers={
-                    "x-api-key": api_key,
-                    "anthropic-version": "2023-06-01",
-                    "content-type": "application/json"
-                },
-                json={
-                    "model": "claude-3-haiku-20240307",
-                    "max_tokens": 4096,
-                    "system": system_prompt,
-                    "messages": [{"role": "user", "content": user_prompt}]
-                },
-                timeout=30.0
-            )
-            response.raise_for_status()
-            data = response.json()
-            content = data["content"][0]["text"]
+class UEBAReplayEngine:
+    def __init__(self, results_path: str, delay_seconds: float = 3.0):
+        self.results_path = results_path
+        self.delay_seconds = delay_seconds
+        self.alerts = []
+        self.active = False
+        self.alerts_played = 0
+        self.current_index = 0
+        self._load_alerts()
+
+    def _load_alerts(self):
+        import json
+        try:
+            with open(self.results_path, "r", encoding="utf-8") as f:
+                self.alerts = json.load(f)
+            # Only replay the alerts (verdict == "ATTACK" or "THREAT") to make the simulation interesting
+            self.alerts = [a for a in self.alerts if a.get("verdict") in ["ATTACK", "THREAT"]]
+            print(f"[UEBAReplayEngine] Loaded {len(self.alerts)} UEBA anomalies.")
+        except Exception as e:
+            print(f"[UEBAReplayEngine] Error loading results: {e}")
+
+    async def start(self, callback: Callable, stop_event: asyncio.Event):
+        self.active = True
+        self.current_index = 0
+        
+        if not self.alerts:
+            print("[UEBAReplayEngine] No alerts loaded.")
+            self.active = False
+            return
             
-            # Split into sessions based on blank lines or block IDs
-            sessions_raw = re.split(r'\n\s*\n', content.strip())
-            for session in sessions_raw:
-                lines = [line.strip() for line in session.split('\n') if line.strip()]
-                if lines:
-                    yield lines
-                    await asyncio.sleep(delay)
-                    
-    except Exception as e:
-        print(f"[LLMGenerator] Error generating logs: {e}")
-        # Yield a dummy anomalous session to show something on failure, or just raise
-        yield [
-            "081109 203518 143 INFO dfs.DataNode$DataXceiver: Receiving block blk_-1608999687919862906 src: /10.250.19.102:54106 dest: /10.250.19.102:50010",
-            "081109 203518 143 WARN dfs.DataNode$DataXceiver: writeBlock blk_-1608999687919862906 received exception java.io.IOException: Connection reset by peer",
-            "081109 203518 143 ERROR dfs.DataNode$DataXceiver: Exception in receiveBlock for block blk_-1608999687919862906 java.io.IOException: Connection reset by peer"
-        ]
+        import random
+        while not stop_event.is_set():
+            alert = dict(self.alerts[self.current_index])
+            try:
+                # Add current time to alert
+                import time as _time
+                alert["time"] = _time.strftime("%Y-%m-%dT%H:%M:%SZ", _time.gmtime())
+                alert["timestamp_epoch"] = _time.time()
+                alert["id"] = f"UEBA-SIM-{int(_time.time()*1000)}"
+                alert["block_id"] = alert["id"]
+                
+                if asyncio.iscoroutinefunction(callback):
+                    await callback(alert)
+                else:
+                    callback(alert)
+            except Exception as e:
+                print(f"[UEBAReplayEngine] Error in callback: {e}")
+            
+            self.alerts_played += 1
+            self.current_index = (self.current_index + 1) % len(self.alerts)
+            
+            try:
+                actual_delay = self.delay_seconds * random.uniform(0.8, 1.2)
+                await asyncio.wait_for(stop_event.wait(), timeout=actual_delay)
+            except asyncio.TimeoutError:
+                pass
+
+        self.active = False
+
+    async def get_status(self) -> dict:
+        return {
+            "active": self.active,
+            "alerts_total": len(self.alerts),
+            "alerts_played": self.alerts_played,
+            "current_index": self.current_index,
+            "delay_seconds": self.delay_seconds
+        }

@@ -81,12 +81,20 @@ def build_mitre_context(result: dict) -> str:
             f"  Fwd Packets     : {fwd_pkts}  |  Bwd Packets: {bwd_pkts}\n"
         )
 
-    hdfs_line = ""
-    if "block_id" in result:
-        hdfs_line = (
-            f"\nHDFS CONTEXT:\n"
-            f"  Block ID  : {result.get('block_id', 'unknown')}\n"
+    auth_line = ""
+    if "src_ip" in result and result.get("source") == "auth_log":
+        auth_line = (
+            f"\nSSH AUTH CONTEXT:\n"
+            f"  Source IP : {result.get('src_ip', 'unknown')}\n"
             f"  Log Events: {result.get('n_events', 0)} events in session\n"
+        )
+
+    ueba_line = ""
+    if "user_id" in result and result.get("source") == "insider_threat":
+        ueba_line = (
+            f"\nUEBA BEHAVIOR CONTEXT:\n"
+            f"  User ID   : {result.get('user_id', 'unknown')}\n"
+            f"  Window    : {result.get('window_start', 'unknown')} to {result.get('window_end', 'unknown')}\n"
         )
 
     vuln_line = ""
@@ -116,7 +124,8 @@ def build_mitre_context(result: dict) -> str:
         f"  Kill Chain    : Stage {kill_stage} — {mitre.get('kill_chain_name', '')}\n"
         f"  Description   : {description}\n"
         f"{flow_line}"
-        f"{hdfs_line}"
+        f"{auth_line}"
+        f"{ueba_line}"
         f"{vuln_line}"
         f"\nSITUATION: {urgency_note}\n"
         f"INITIAL ACTION : {action_note}"
@@ -171,6 +180,7 @@ async def call_llm(messages, tools=None):
     for m in sorted(MODELS, key=lambda x: x["priority"]):
         now = time.time()
         if m["name"] in _rate_limited_until and _rate_limited_until[m["name"]] > now:
+            errors.append(f"{m['name']} rate limited (cooldown)")
             continue
             
         api_key = get_key(m["key_name"])
@@ -225,7 +235,7 @@ TOOLS = [
                 "properties": {
                     "source": {
                         "type": "string",
-                        "enum": ["HDFS", "Network", "ALL"],
+                        "enum": ["SSH", "UEBA", "Network", "ALL"],
                         "description": "Which pipeline to fetch from"
                     },
                     "limit": {
@@ -238,17 +248,32 @@ TOOLS = [
             }
         }
     },
+
     {
         "type": "function",
         "function": {
-            "name": "get_block_session",
-            "description": "Get raw log lines and event sequence for a specific HDFS block ID",
+            "name": "get_ssh_auth_session",
+            "description": "Get raw SSH authentication log lines for a specific IP address. Use when source is auth_log.",
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "block_id": {"type": "string"}
+                    "ip_address": {"type": "string"}
                 },
-                "required": ["block_id"]
+                "required": ["ip_address"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_ueba_user_behavior",
+            "description": "Get cross-channel raw behavior logs (logon, device, file, email, http) for a specific user ID. Use when source is insider_threat.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "user_id": {"type": "string"}
+                },
+                "required": ["user_id"]
             }
         }
     },
@@ -309,14 +334,50 @@ def run_tool(name: str, inputs: dict, app_state):
                 alerts = [a for a in alerts if a.get("source", "").lower() == source.lower()]
             return json.dumps(alerts[-limit:])
             
-        elif name == "get_block_session":
-            block_id = inputs.get("block_id")
-            logs = state.get("logs", [])
-            for l in logs:
-                if l.get("block_id") == block_id:
-                    return json.dumps({"block_id": block_id, "raw": l.get("raw")})
-            return json.dumps({"error": f"Block {block_id} not found"})
-            
+
+        elif name == "get_ssh_auth_session":
+            ip_address = inputs.get("ip_address")
+            try:
+                import os
+                path = os.path.join(os.path.dirname(__file__), "data", "ssh_inference_samples.txt")
+                matched_lines = []
+                with open(path, "r", encoding="utf-8") as f:
+                    for line in f:
+                        if ip_address in line:
+                            matched_lines.append(line.strip())
+                if not matched_lines:
+                    return json.dumps({"error": f"No logs found for IP {ip_address}"})
+                # Limit to 50 lines so we don't blow up context window
+                return json.dumps({"ip_address": ip_address, "logs": matched_lines[:50]})
+            except Exception as e:
+                return json.dumps({"error": str(e)})
+
+        elif name == "get_ueba_user_behavior":
+            user_id = inputs.get("user_id")
+            try:
+                import sqlite3
+                import os
+                db_path = os.path.join(os.path.dirname(__file__), "cyberai.db")
+                conn = sqlite3.connect(db_path)
+                cursor = conn.cursor()
+                cursor.execute("SELECT date, log_type, activity, filename, email_to, url, content FROM ueba_logs WHERE user = ? LIMIT 50", (user_id,))
+                rows = cursor.fetchall()
+                conn.close()
+                if not rows:
+                    return json.dumps({"error": f"No behavior logs found for user {user_id}"})
+                results = []
+                for r in rows:
+                    res = {"date": r[0], "log_type": r[1]}
+                    if r[2]: res["activity"] = r[2]
+                    if r[3]: res["filename"] = r[3]
+                    if r[4]: res["email_to"] = r[4]
+                    if r[5]: res["url"] = r[5]
+                    if r[6]: res["content"] = r[6]
+                    results.append(res)
+                return json.dumps({"user_id": user_id, "logs": results})
+            except Exception as e:
+                return json.dumps({"error": str(e)})
+                
         elif name == "get_flows_by_type":
             attack_type = inputs.get("attack_type")
             limit = inputs.get("limit", 10)
@@ -366,15 +427,27 @@ RULES:
 - Keep total response under 400 words.
 - If verdict is BENIGN respond with one sentence only: "Flow classified as normal — no action required."
 - If [ZERO-DAY] appears in the briefing add a [ZERO-DAY ALERT] header and treat urgency one level higher.
-- Use your tools to check recent alerts for related activity before writing your final report.
+- Check the source: If auth_log use get_ssh_auth_session. If insider_threat use get_ueba_user_behavior. If Network use get_flows_by_type.
+- You MUST use the tools to retrieve raw logs and summarize the specific events/commands the attacker executed.
 - CRITICAL: You MUST use the `create_incident` tool to submit your final report. Put your markdown report inside the `report_markdown` parameter. Do not output the report as regular chat text.
 """
 
 # ── H. Agent Loop ──
 import uuid
 import datetime
+import time
+
+_last_agent_run = 0.0
 
 async def run_agent(trigger_payload: dict, app_state):
+    global _last_agent_run
+    now = time.time()
+    # Throttle agent execution to max 1 per 10 seconds globally
+    if now - _last_agent_run < 10.0:
+        print(f"[Agent] Skipped due to 10s throttle. (Payload: {trigger_payload.get('title', 'Unknown')})")
+        return
+    _last_agent_run = now
+
     try:
         mitre_context = build_mitre_context(trigger_payload)
         
@@ -490,9 +563,8 @@ async def manual_analyze(req: AnalyzeManualRequest, request: Request):
                 alert = a
                 break
 
-    # Priority 3: find in net/hdfs logs
     if not alert:
-        for log_key in ("net_logs", "hdfs_logs", "logs"):
+        for log_key in ("net_logs", "ssh_logs", "ueba_logs", "logs"):
             for l in state.get(log_key, []):
                 if l.get("block_id") == req.alert_id or l.get("id") == req.alert_id:
                     alert = l
@@ -516,8 +588,10 @@ async def manual_analyze(req: AnalyzeManualRequest, request: Request):
         
         if alert.get("source") == "Network":
             alert = mapper.enrich(alert, alert)
-        else:
-            alert = mapper.enrich_hdfs(alert)
+        elif alert.get("source") == "auth_log":
+            alert = mapper.enrich_ssh(alert)
+        elif alert.get("source") == "insider_threat":
+            alert = mapper.enrich_ueba(alert)
 
     if "vulnerability_analysis" not in alert and getattr(request.app.state, "rag_analyzer", None):
         import asyncio
@@ -636,21 +710,21 @@ if __name__ == "__main__":
     assert "Stage 7"  in ctx2
     print("Test 2 passed - DDoS CRITICAL context correct")
 
-    # Test 3 — HDFS anomaly
+    # Test 3 — SSH anomaly
     r3 = {
-        "prediction": "Anomaly", "confidence": 0.92,
-        "block_id": "blk_-1608999687919862906", "n_events": 14,
-        "mitre": {"tactic": "Impact", "tactic_id": "TA0040",
-                  "technique": "Data Destruction", "technique_id": "T1485",
-                  "kill_chain_stage": 7, "kill_chain_name": "Actions on Objectives",
-                  "severity": "critical",
-                  "description": "High-confidence HDFS anomaly."}
+        "source": "auth_log", "prediction": "Brute Force", "confidence": 0.92,
+        "src_ip": "192.168.1.100", "n_events": 14,
+        "mitre": {"tactic": "Credential Access", "tactic_id": "TA0006",
+                  "technique": "Brute Force", "technique_id": "T1110",
+                  "kill_chain_stage": 4, "kill_chain_name": "Exploitation",
+                  "severity": "high",
+                  "description": "High-confidence SSH brute force."}
     }
     ctx3 = build_mitre_context(r3)
-    assert "blk_-1608999687919862906" in ctx3
-    assert "T1485"                    in ctx3
+    assert "192.168.1.100"            in ctx3
+    assert "T1110"                    in ctx3
     assert "14 events"                in ctx3
-    print("Test 3 passed - HDFS anomaly context correct")
+    print("Test 3 passed - SSH anomaly context correct")
 
     # Test 4 — urgency ladder
     assert _extract_urgency({"mitre": {"kill_chain_stage": 0}}) == "none"

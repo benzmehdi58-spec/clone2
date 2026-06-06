@@ -45,12 +45,27 @@ function connect() {
           // Format based on source
           let formattedAlert: any;
           
-          if (message.source === 'hdfs') {
+          if (message.source === 'ssh' || message.source === 'auth_log') {
             formattedAlert = {
-              id: alert.block_id || `HDFS-${Date.now()}`,
+              id: alert.id || `SSH-${Date.now()}`,
               time: "Real-time",
-              source: "HDFS",
-              title: "HDFS System Anomaly",
+              source: "SSH",
+              title: "SSH Authentication Anomaly",
+              reason: alert.preview || "",
+              severity: alert.confidence > 85 ? "critical" : "warning",
+              confidence: alert.confidence,
+              reviewed: false,
+              mitre_technique: alert.mitre?.technique,
+              mitre_id: alert.mitre?.technique_id,
+              mitre: alert.mitre,
+              ...alert,
+            };
+          } else if (message.source === 'ueba' || message.source === 'insider_threat') {
+            formattedAlert = {
+              id: alert.id || `UEBA-${Date.now()}`,
+              time: "Real-time",
+              source: "UEBA",
+              title: "Insider Threat Detected",
               reason: alert.preview || "",
               severity: alert.confidence > 85 ? "critical" : "warning",
               confidence: alert.confidence,
@@ -127,14 +142,16 @@ export function useWebSocket() {
     };
   }, []);
 
-  const hdfsAlerts = allAlerts.filter(a => a.source === 'HDFS');
+  const sshAlerts = allAlerts.filter(a => a.source === 'SSH');
+  const uebaAlerts = allAlerts.filter(a => a.source === 'UEBA');
   const networkAlerts = allAlerts.filter(a => a.source === 'Network');
 
   return {
     connected,
     lastAlert,
     allAlerts,
-    hdfsAlerts,
+    sshAlerts,
+    uebaAlerts,
     networkAlerts
   };
 }
