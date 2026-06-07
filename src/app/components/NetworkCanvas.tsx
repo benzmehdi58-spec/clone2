@@ -50,7 +50,6 @@ export function NetworkCanvas({ alerts, height = 290 }: NetworkCanvasProps) {
     particles: [] as Particle[],
     prevCount: 0,
     coreFlashTime: 0,
-    autoSpawnTime: 0,
     lastTime: 0,
   });
   const animRef = useRef<number | null>(null);
@@ -173,25 +172,7 @@ export function NetworkCanvas({ alerts, height = 290 }: NetworkCanvasProps) {
 
       ctx!.clearRect(0, 0, w, h);
 
-      // Always auto-spawn background particles to keep the canvas alive.
-      // When real alerts are streaming, these blend with real particles.
-      // Rate: 1 particle every 1.5 s from a rotating source.
-      if (now - s.autoSpawnTime > 1500) {
-        s.autoSpawnTime = now;
-        const srcs: ('ssh' | 'ueba' | 'network')[] = ['ssh', 'ueba', 'network'];
-        const idx = Math.floor(now / 1500) % 3;
-        // 1-in-6 chance of being a fake attack to keep the anomaly path lit
-        const isAttack = Math.floor(now / 1500) % 6 === 0;
-        s.particles.push({
-          id: `auto-${now}`,
-          isAttack,
-          sourceKey: srcs[idx],
-          phase: 'toCore',
-          progress: 0,
-          output: isAttack ? 'anomaly' : 'benign',
-          coreArrivalTime: 0,
-        });
-      }
+
 
       const cP = nodePos('core');
       const bP = nodePos('benign');

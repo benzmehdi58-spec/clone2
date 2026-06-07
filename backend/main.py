@@ -449,6 +449,9 @@ app.add_middleware(
 from analyst_router import router as analyst_router
 app.include_router(analyst_router)
 
+from agent_router import router as agent_router
+app.include_router(agent_router)
+
 class ConnectionManager:
     def __init__(self):
         self.active_connections: list[WebSocket] = []

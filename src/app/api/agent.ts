@@ -105,3 +105,23 @@ export async function controlSimulation(
   });
   if (!res.ok) throw new Error(`simulation control: HTTP ${res.status}`);
 }
+
+export interface ChatMessage {
+  role: 'user' | 'assistant';
+  content: string;
+}
+
+export async function sendChatMessage(
+  message: string,
+  history: ChatMessage[] = [],
+  context: Record<string, any> = {}
+): Promise<{ answer: string, sources?: any[] }> {
+  const res = await fetch(`${BASE}/api/agent/chat`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ message, history, context }),
+    signal: AbortSignal.timeout(60000),
+  });
+  if (!res.ok) throw new Error(`sendChatMessage: HTTP ${res.status}`);
+  return res.json();
+}

@@ -306,11 +306,33 @@ TOOLS = [
                 "required": ["severity", "title", "report_markdown", "correlated_ids"]
             }
         }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "search_knowledge_base",
+            "description": "Search the uploaded document knowledge base for CVEs, MITRE techniques, or general security concepts using RAG.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string"}
+                },
+                "required": ["query"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_database_stats",
+            "description": "Get summary statistics of alerts in the SIEM database.",
+            "parameters": {"type": "object", "properties": {}}
+        }
     }
 ]
 
 # ── F. Tool executor ──
-def run_tool(name: str, inputs: dict, app_state):
+async def run_tool(name: str, inputs: dict, app_state):
     state = app_state.global_state
     
     try:
@@ -377,6 +399,39 @@ def run_tool(name: str, inputs: dict, app_state):
             # Just return a success message so the agent knows it worked
             # We will extract this call's arguments in the main loop to save it
             return json.dumps({"status": "Incident saved successfully. You may stop."})
+            
+        elif name == "search_knowledge_base":
+            query = inputs.get("query")
+            try:
+                from analyst_store import retrieve_context
+                retrieval = await retrieve_context(query, top_k=3)
+                chunks = retrieval.get("chunks", [])
+                if not chunks:
+                    return json.dumps({"result": "No relevant info found."})
+                
+                # We return the exact chunk format so agent_chat can parse it for the UI
+                return json.dumps({
+                    "chunks": [{
+                        "filename": c["filename"], 
+                        "doc_type": c.get("doc_type", "document"),
+                        "similarity": c.get("similarity", 0.0),
+                        "snippet": c["snippet"]
+                    } for c in chunks]
+                })
+            except Exception as e:
+                return json.dumps({"error": str(e)})
+                
+        elif name == "get_database_stats":
+            try:
+                import database
+                alerts = database.get_alerts()
+                stats = {"total_alerts": len(alerts), "critical": 0, "high": 0, "medium": 0, "low": 0}
+                for a in alerts:
+                    sev = a.get("severity", "low")
+                    if sev in stats: stats[sev] += 1
+                return json.dumps(stats)
+            except Exception as e:
+                return json.dumps({"error": str(e)})
             
         else:
             return json.dumps({"error": f"Unknown tool {name}"})
@@ -469,7 +524,7 @@ async def run_agent(trigger_payload: dict, app_state):
                         incident_data = args
                         has_created_incident = True
                         
-                    res = run_tool(name, args, app_state)
+                    res = await run_tool(name, args, app_state)
                     messages.append({
                         "role": "tool",
                         "tool_call_id": tc["id"],
@@ -729,6 +784,101 @@ def get_incident(incident_id: str, request: Request):
     if not inc:
         raise HTTPException(status_code=404, detail="Incident not found")
     return inc
+
+class ChatMessage(BaseModel):
+    role: str
+    content: str
+
+class ChatAgentRequest(BaseModel):
+    message: str
+    context: dict = {}
+    history: list[ChatMessage] = []
+
+AGENT_CHAT_PROMPT = """You are CyberAI — an expert AI security analyst embedded in a Security Operations Center (SOC).
+You have access to real-time tools to query the SIEM database, SSH logs, UEBA logs, network flows, and a RAG knowledge base.
+You are currently chatting directly with a human SOC analyst.
+
+UI Context:
+{ui_context}
+
+RULES:
+1. Always use tools to verify information before making claims about the SIEM state.
+2. If asked about general security (CVEs, MITRE), use `search_knowledge_base`.
+3. If asked about current alerts or stats, use `get_database_stats` or `get_recent_alerts`.
+4. If investigating an IP or User, use `get_ssh_auth_session` or `get_ueba_user_behavior`.
+5. Keep your answers concise, professional, and directly address the user's question.
+6. Do NOT use `create_incident` unless explicitly asked to generate an incident report.
+"""
+
+@router.post("/api/agent/chat")
+async def agent_chat(req: ChatAgentRequest, request: Request):
+    app_state = request.app.state
+    
+    ctx_str = "No specific UI context provided."
+    if req.context:
+        ctx_str = json.dumps(req.context, indent=2)
+        
+    system_prompt = AGENT_CHAT_PROMPT.replace("{ui_context}", ctx_str)
+    
+    messages = [{"role": "system", "content": system_prompt}]
+    
+    for msg in req.history:
+        messages.append({"role": msg.role, "content": msg.content})
+        
+    messages.append({"role": "user", "content": req.message})
+    
+    try:
+        for _ in range(8):
+            msg = await call_llm(messages, tools=TOOLS)
+            messages.append(msg)
+            
+            if msg.get("tool_calls"):
+                for tc in msg["tool_calls"]:
+                    name = tc["function"]["name"]
+                    try:
+                        args = json.loads(tc["function"]["arguments"])
+                    except Exception as e:
+                        messages.append({
+                            "role": "tool",
+                            "content": f"JSON error: {e}",
+                            "tool_call_id": tc["id"]
+                        })
+                        continue
+                        
+                    res = await run_tool(name, args, app_state)
+                    messages.append({
+                        "role": "tool",
+                        "content": res,
+                        "tool_call_id": tc["id"]
+                    })
+            else:
+                break
+                
+        final_answer = ""
+        for m in reversed(messages):
+            if m.get("role") == "assistant" and m.get("content"):
+                final_answer = m["content"]
+                break
+                
+        if not final_answer:
+            final_answer = "I've completed the tool calls, but did not generate a final text response."
+            
+        # Extract sources if search_knowledge_base was used
+        sources = []
+        for m in messages:
+            if m.get("role") == "tool":
+                try:
+                    data = json.loads(m["content"])
+                    if "chunks" in data:
+                        sources.extend(data["chunks"])
+                except:
+                    pass
+            
+        return {"answer": final_answer, "sources": sources}
+        
+    except Exception as e:
+        print(f"Chat agent error: {e}")
+        return {"answer": f"Error: {str(e)}", "sources": []}
 
 if __name__ == "__main__":
 

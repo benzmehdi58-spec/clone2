@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect, type KeyboardEvent } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Sparkles, X, Send, Bot, User, Minimize2, Copy, Check, Paperclip } from 'lucide-react';
+import { sendChatMessage } from '../api/agent';
 
 /* ─── Types ─── */
 interface Message {
@@ -13,10 +14,10 @@ interface Message {
 
 /* ─── Quick-action suggestion chips ─── */
 const QUICK_ACTIONS = [
-  'Summarize recent SSH attacks',
-  'Analyze the latest anomaly',
-  'List top MITRE techniques',
-  'What are the active threats?',
+  'Summarize recent alerts',
+  'Search for critical threats',
+  'Analyze UEBA behavior',
+  'What is T1498?',
   'Explain ZERO_DAY signatures',
   'Show high-confidence alerts',
 ];
@@ -308,48 +309,28 @@ export function ChatBot() {
     }]);
 
     try {
-      const BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000';
-      const res = await fetch(`${BASE}/api/analyst/chat/stream`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ question: trimmed })
-      });
-
-      if (!res.ok) throw new Error('API Error');
-
-      const reader = res.body?.getReader();
-      const decoder = new TextDecoder();
-      let done = false;
-      let fullContent = '';
-
-      while (reader && !done) {
-        const { value, done: doneReading } = await reader.read();
-        done = doneReading;
-        if (value) {
-          const chunk = decoder.decode(value, { stream: true });
-          const lines = chunk.split('\n');
-          for (const line of lines) {
-            if (line.startsWith('data: ')) {
-              try {
-                const data = JSON.parse(line.slice(6));
-                if (data.type === 'token') {
-                  fullContent += data.content;
-                  setMessages(prev => prev.map(m => m.id === aiMsgId ? { ...m, content: fullContent } : m));
-                } else if (data.type === 'sources') {
-                  setMessages(prev => prev.map(m => m.id === aiMsgId ? { ...m, sources: data.sources } : m));
-                }
-              } catch (e) {
-                // Ignore parsing errors for incomplete chunks
-              }
-            }
-          }
-        }
-      }
+      const history = messages
+        .filter(m => m.id !== 'welcome')
+        .map(m => ({ role: m.role as 'user' | 'assistant', content: m.content }));
+        
+      const context = {
+        pathname: window.location.pathname,
+        timestamp: new Date().toISOString()
+      };
+      
+      const data = await sendChatMessage(trimmed, history, context);
+      
+      setMessages(prev => prev.map(m => m.id === aiMsgId ? { 
+        ...m, 
+        content: data.answer,
+        sources: data.sources
+      } : m));
+      
     } catch (err) {
-      setMessages(prev => prev.map(m => m.id === aiMsgId ? { ...m, content: 'Sorry, I encountered an error connecting to the analyst backend.' } : m));
+      setMessages(prev => prev.map(m => m.id === aiMsgId ? { ...m, content: 'Sorry, I encountered an error connecting to the analyst agent.' } : m));
     } finally {
       setLoading(false);
-      setHasUnread(prev => true); // If they closed it during streaming
+      setHasUnread(prev => true); // If they closed it during loading
     }
   };
 
