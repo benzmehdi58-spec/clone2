@@ -1,3 +1,12 @@
+---
+title: CyberAI NIDS
+emoji: 🚀
+colorFrom: blue
+colorTo: indigo
+sdk: docker
+pinned: false
+---
+
 
   # CyberAI Web Application Interface
 
