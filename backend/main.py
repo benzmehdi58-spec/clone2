@@ -153,6 +153,9 @@ state: dict = {
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Initialize SQLite database explicitly on startup
+    database.init_db()
+
     print("=========================================================================")
     print("INFO: Loading heavy machine learning models... This may take 15-30 seconds!")
     print("INFO: Please do not press Ctrl+C, the server is NOT frozen.")
