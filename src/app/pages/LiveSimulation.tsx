@@ -1,10 +1,11 @@
 import { useState, useRef, useEffect } from 'react';
 import { motion } from 'motion/react';
-import { Activity, AlertTriangle, Globe, Server, Play, Square, Loader2 } from 'lucide-react';
+import { Activity, AlertTriangle, Globe, Server, Play, Square, Loader2, RotateCcw } from 'lucide-react';
 import { toast } from 'sonner';
 import { Switch } from '@/app/components/ui/switch';
 import { Slider } from '@/app/components/ui/slider';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/app/components/ui/select';
+import { Button } from '../components/ui/Button';
 import { useWebSocketData } from '../contexts/WebSocketContext';
 import { controlSimulation } from '../api/agent';
 import { MetricCard } from '../components/MetricCard';
@@ -201,11 +202,21 @@ export function LiveSimulation() {
   return (
     <div className="p-6 max-w-screen-2xl mx-auto">
       {/* Header */}
-      <motion.div initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4 }} className="mb-6">
-        <h1 className="text-[#F0F6FC] text-2xl font-bold tracking-tight">Live Simulation</h1>
-        <p className="text-[#8B949E] text-sm mt-1">
-          Inject attacks into the ML pipeline and watch the AI classify them in real-time
-        </p>
+      <motion.div initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4 }} className="mb-6 flex justify-between items-start">
+        <div>
+          <h1 className="text-[#F0F6FC] text-2xl font-bold tracking-tight">Live Simulation</h1>
+          <p className="text-[#8B949E] text-sm mt-1">
+            Inject attacks into the ML pipeline and watch the AI classify them in real-time
+          </p>
+        </div>
+        <Button 
+          variant="outline" 
+          onClick={() => window.location.reload()}
+          className="border-[#E3000F]/30 text-[#E3000F] hover:bg-[#E3000F]/10 hover:text-[#E3000F] hover:border-[#E3000F]"
+        >
+          <RotateCcw className="w-4 h-4 mr-2" />
+          Reset Simulation
+        </Button>
       </motion.div>
 
       {/* Metric cards */}

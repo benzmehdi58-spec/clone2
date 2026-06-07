@@ -192,7 +192,13 @@ export function AlertDetail() {
         </div>
 
         <div className="flex items-center gap-2 ml-auto">
-          <span className="text-[#8B949E] text-xs hidden md:block">{alert?.time}</span>
+          {alert?.source === 'insider_threat' && alert.window_start && alert.window_end ? (
+            <span className="text-[#8B949E] text-xs hidden md:block">
+              {alert.window_start} — {alert.window_end}
+            </span>
+          ) : (
+            <span className="text-[#8B949E] text-xs hidden md:block">{alert?.time}</span>
+          )}
           {alert && (
             <button
               onClick={copyJson}

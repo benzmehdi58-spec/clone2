@@ -1,7 +1,9 @@
-import { useState, useEffect } from "react";
-import { Server, Network, ShieldAlert, CheckCircle2, Loader2, Bug, User, Key } from "lucide-react";
+import { useState, useEffect, useCallback } from "react";
+import { Server, Network, ShieldAlert, CheckCircle2, Loader2, Bug, User, Key, AlertTriangle } from "lucide-react";
 import { Badge } from "../components/ui/Badge";
 import { Button } from "../components/ui/Button";
+import { Slider } from "../components/ui/slider";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../components/ui/select";
 import { useNavigate } from "react-router";
 import { cn } from "../utils/cn";
 import { fetchAlerts } from "../api/agent";
@@ -11,19 +13,47 @@ const filters = ["All", "Critical", "Network", "System", "SSH Auth", "UEBA Insid
 
 export function Alerts() {
   const [activeFilter, setActiveFilter] = useState("All");
+  const [timeRange, setTimeRange] = useState("All Time");
+  const [confidenceThreshold, setConfidenceThreshold] = useState(0);
   const [alerts, setAlerts] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const navigate = useNavigate();
 
-  useEffect(() => {
-    const loadData = async () => {
-      setIsLoading(true);
+  const loadData = useCallback(async () => {
+    setIsLoading(true);
+    setError(null);
+    try {
       const result = await fetchAlerts(activeFilter);
       setAlerts(result);
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
       setIsLoading(false);
-    };
-    loadData();
+    }
   }, [activeFilter]);
+
+  useEffect(() => {
+    loadData();
+  }, [loadData]);
+
+  const filteredAlerts = alerts.filter(alert => {
+    // Confidence Filter
+    const conf = alert.confidence || 0;
+    if (conf < confidenceThreshold) return false;
+
+    // Time Range Filter
+    if (timeRange !== "All Time" && alert.time) {
+      const alertTime = new Date(alert.time).getTime();
+      const now = Date.now();
+      const hours24 = 24 * 60 * 60 * 1000;
+      
+      if (timeRange === "Last 24h" && (now - alertTime) > hours24) return false;
+      if (timeRange === "Last 7d" && (now - alertTime) > hours24 * 7) return false;
+      if (timeRange === "Last 30d" && (now - alertTime) > hours24 * 30) return false;
+    }
+    return true;
+  });
 
   return (
     <div className="flex flex-col gap-6 max-w-5xl mx-auto">
@@ -50,18 +80,59 @@ export function Alerts() {
         </div>
       </div>
 
+      {/* New UX Controls */}
+      <div className="flex flex-col md:flex-row items-center gap-6 p-4 bg-[#161B22] rounded-lg border border-[#30363D]">
+        {/* Time Range */}
+        <div className="flex items-center gap-3 w-full md:w-auto">
+          <span className="text-sm font-medium text-[#717182] whitespace-nowrap">Time Range:</span>
+          <Select value={timeRange} onValueChange={setTimeRange}>
+            <SelectTrigger className="w-[140px] text-xs h-8 border-[#30363D] bg-[#0D1117] text-[#8B949E]">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent className="bg-[#161B22] border-[#30363D] text-[#F0F6FC]">
+              <SelectItem value="All Time" className="text-xs">All Time</SelectItem>
+              <SelectItem value="Last 24h" className="text-xs">Last 24h</SelectItem>
+              <SelectItem value="Last 7d" className="text-xs">Last 7d</SelectItem>
+              <SelectItem value="Last 30d" className="text-xs">Last 30d</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+
+        {/* Confidence Threshold */}
+        <div className="flex items-center gap-3 w-full md:flex-1">
+          <span className="text-sm font-medium text-[#717182] whitespace-nowrap">
+            Min Confidence ({confidenceThreshold}%)
+          </span>
+          <Slider 
+            value={[confidenceThreshold]} 
+            onValueChange={([v]) => setConfidenceThreshold(v)} 
+            min={0} max={100} step={5}
+            className="[&_[role=slider]]:bg-[#2F81F7] [&_[role=slider]]:border-[#2F81F7]"
+          />
+        </div>
+      </div>
+
       <div className="flex flex-col gap-3">
-        {isLoading ? (
+        {error ? (
+          <div className="flex flex-col items-center justify-center py-12 text-center bg-[#161B22] rounded-lg border border-[#F85149]/30">
+            <AlertTriangle className="h-10 w-10 text-[#F85149] mb-4" />
+            <h3 className="text-lg font-semibold text-white mb-2">Failed to load alerts</h3>
+            <p className="text-[#717182] text-sm mb-6 max-w-md">{error}</p>
+            <Button onClick={loadData} className="bg-[#30363D] hover:bg-[#8B949E] text-white">
+              Retry Connection
+            </Button>
+          </div>
+        ) : isLoading ? (
           <div className="flex justify-center py-12">
             <Loader2 className="h-8 w-8 animate-spin text-[#717182]" />
           </div>
-        ) : alerts.length === 0 ? (
+        ) : filteredAlerts.length === 0 ? (
           <div className="text-center py-12 text-[#717182]">
             <ShieldAlert className="h-12 w-12 mx-auto mb-4 opacity-20" />
             <p>No alerts match the current filter.</p>
           </div>
         ) : (
-          alerts.map((alert) => (
+          filteredAlerts.map((alert) => (
             <div
               key={alert.id}
               className="flex flex-col md:flex-row bg-[#161B22] rounded-lg border border-[#30363D] overflow-hidden hover:border-[#717182] transition-colors"
