@@ -143,11 +143,25 @@ export function LiveSimulation() {
     }
   }, [allAlerts]);
 
-  // Control states
-  const [ssh, setSsh]         = useState<SimControl>({ active: false, delay: 500,  loading: false });
-  const [ueba, setUeba]       = useState<SimControl>({ active: false, delay: 800,  loading: false });
-  const [net, setNet]         = useState<SimControl>({ active: false, delay: 300,  loading: false });
-  const [scenario, setScenario] = useState('normal');
+  // Control states — start as active=true to match the backend auto-start
+  const [ssh, setSsh]         = useState<SimControl>({ active: true,  delay: 500,  loading: false });
+  const [ueba, setUeba]       = useState<SimControl>({ active: true,  delay: 800,  loading: false });
+  const [net, setNet]         = useState<SimControl>({ active: true,  delay: 300,  loading: false });
+  const [scenario, setScenario] = useState('mixed');
+
+  // Sync actual backend state on mount
+  useEffect(() => {
+    const BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+    fetch(`${BASE}/api/simulate/status/all`, { signal: AbortSignal.timeout(3000) })
+      .then(r => r.ok ? r.json() : null)
+      .then(data => {
+        if (!data) return;
+        if (data.ssh)     setSsh(p  => ({ ...p, active: data.ssh.active  ?? p.active  }));
+        if (data.ueba)    setUeba(p => ({ ...p, active: data.ueba.active  ?? p.active  }));
+        if (data.network) setNet(p  => ({ ...p, active: data.network.active ?? p.active }));
+      })
+      .catch(() => { /* backend not ready yet — keep defaults */ });
+  }, []);
 
   async function handleToggle(
     type: 'ssh' | 'ueba' | 'network',
@@ -169,12 +183,13 @@ export function LiveSimulation() {
     }
   }
 
+
   // Build terminal feed lines from live alerts
   const formatRaw = (a: Alert) =>
-    `[${a.time}] ${a.source} | ${a.id} | ${a.reason.slice(0, 70)}`;
+    `[${a.time ?? new Date().toISOString()}] ${a.source ?? '?'} | ${a.id ?? '?'} | ${(a.reason ?? a.preview ?? a.title ?? '').slice(0, 70)}`;
 
   const formatVerdict = (a: Alert) =>
-    `[${a.time}] ${a.id.padEnd(14)} → ${a.verdict ?? 'PENDING'} (${a.confidence.toFixed(1)}%)`;
+    `[${a.time ?? '?'}] ${(a.id ?? '?').padEnd(14)} → ${a.verdict ?? 'PENDING'} (${Number(a.confidence ?? 0).toFixed(1)}%)`;
 
   const verdictColor = (line: string) =>
     line.includes('ATTACK') || line.includes('ZERO_DAY') ? '#E3000F'

@@ -58,21 +58,25 @@ export function NetworkCanvas({ alerts, height = 290 }: NetworkCanvasProps) {
   // Inject new particles when real alerts arrive
   useEffect(() => {
     const s = stateRef.current;
-    if (alerts.length > s.prevCount) {
-      const incoming = alerts.slice(0, alerts.length - s.prevCount);
+    // Only react to new alerts arriving AFTER the initial load
+    // Use a small threshold so the initial 100-alert preload doesn't flood the canvas
+    const delta = alerts.length - s.prevCount;
+    if (delta > 0) {
+      // Take the newest alerts (the delta), cap at 8 to avoid flooding
+      const incoming = alerts.slice(0, Math.min(delta, 8));
       incoming.forEach(a => {
         const isAttack = a.verdict === 'ATTACK' || a.verdict === 'ZERO_DAY';
         s.particles.push({
           id: a.id,
           isAttack,
-          sourceKey: SOURCE_MAP[a.source] ?? 'ssh',
+          sourceKey: SOURCE_MAP[a.source] ?? 'network',
           phase: 'toCore',
           progress: 0,
           output: isAttack ? 'anomaly' : 'benign',
           coreArrivalTime: 0,
         });
       });
-      if (s.particles.length > 40) s.particles = s.particles.slice(-40);
+      if (s.particles.length > 60) s.particles = s.particles.slice(-60);
     }
     s.prevCount = alerts.length;
   }, [alerts]);
@@ -169,12 +173,15 @@ export function NetworkCanvas({ alerts, height = 290 }: NetworkCanvasProps) {
 
       ctx!.clearRect(0, 0, w, h);
 
-      // Auto-spawn when no real alerts are streaming
-      if (s.prevCount === 0 && now - s.autoSpawnTime > 1100) {
+      // Always auto-spawn background particles to keep the canvas alive.
+      // When real alerts are streaming, these blend with real particles.
+      // Rate: 1 particle every 1.5 s from a rotating source.
+      if (now - s.autoSpawnTime > 1500) {
         s.autoSpawnTime = now;
         const srcs: ('ssh' | 'ueba' | 'network')[] = ['ssh', 'ueba', 'network'];
-        const idx = Math.floor(now / 1100) % 3;
-        const isAttack = Math.floor(now / 1100) % 5 === 0;
+        const idx = Math.floor(now / 1500) % 3;
+        // 1-in-6 chance of being a fake attack to keep the anomaly path lit
+        const isAttack = Math.floor(now / 1500) % 6 === 0;
         s.particles.push({
           id: `auto-${now}`,
           isAttack,

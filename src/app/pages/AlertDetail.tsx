@@ -3,7 +3,7 @@ import { useParams, useLocation, useNavigate } from 'react-router';
 import { motion } from 'motion/react';
 import { ArrowLeft, Copy, Check, Loader2, AlertTriangle, ShieldCheck, Zap, ListChecks, Bot } from 'lucide-react';
 import { toast } from 'sonner';
-import { analyzeAlert } from '../api/agent';
+import { analyzeAlert, AgentReport } from '../api/agent';
 import { useWebSocketData } from '../contexts/WebSocketContext';
 import { MitreRadar } from '../components/MitreRadar';
 import type { Alert } from '../types';
@@ -139,7 +139,7 @@ export function AlertDetail() {
   // Resolve alert from nav state first, then WebSocket cache
   const alert: Alert | undefined = state?.alert ?? allAlerts.find(a => a.id === id);
 
-  const [report, setReport]   = useState<string | null>(null);
+  const [report, setReport]   = useState<AgentReport | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError]     = useState<string | null>(null);
   const [copied, setCopied]   = useState(false);
@@ -150,7 +150,7 @@ export function AlertDetail() {
     setError(null);
     setReport(null);
     analyzeAlert(id, alert?.source ?? '', alert as unknown as Record<string, unknown>)
-      .then(r => { setReport(r.report); setLoading(false); })
+      .then(r => { setReport(r as AgentReport); setLoading(false); })
       .catch(e => { setError(e.message); setLoading(false); });
   }, [id]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -163,7 +163,7 @@ export function AlertDetail() {
     });
   };
 
-  const sections = report ? parseReport(report) : [];
+  const sections = report?.report_markdown ? parseReport(report.report_markdown) : [];
 
   const isAttack = alert?.verdict === 'ATTACK' || alert?.verdict === 'ZERO_DAY';
 
@@ -269,6 +269,27 @@ export function AlertDetail() {
                 <p className="text-[#E3000F] text-sm font-medium mb-1">Analysis failed</p>
                 <p className="text-[#8B949E] text-xs">{error}</p>
                 <p className="text-[#8B949E]/60 text-xs mt-2">Ensure the backend is running at localhost:8000</p>
+              </div>
+            )}
+
+            {report && sections.length === 0 && (
+              <div className="rounded-xl p-4 bg-[#0D1117] border border-[#30363D]">
+                <h3 className="font-semibold text-[#F0F6FC] mb-3 flex items-center gap-2">
+                  <Bot size={18} className="text-[#8B949E]" />
+                  {report.title || "AI Analyst Report"}
+                  {report.severity && (
+                    <span className={`px-2 py-0.5 rounded text-xs ml-2 ${
+                      report.severity === 'critical' ? 'bg-[#E3000F] text-white' :
+                      report.severity === 'high' ? 'bg-orange-500 text-white' :
+                      'bg-yellow-500 text-black'
+                    }`}>
+                      {report.severity.toUpperCase()}
+                    </span>
+                  )}
+                </h3>
+                <div className="text-[13px] text-[#C9D1D9] whitespace-pre-wrap font-mono leading-relaxed">
+                  {report.report_markdown || (report as any).report}
+                </div>
               </div>
             )}
 

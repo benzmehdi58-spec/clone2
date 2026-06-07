@@ -12,6 +12,12 @@ if not exist ".venv\Scripts\activate.bat" (
     exit /b 1
 )
 
+echo [*] Freeing port 8000 if in use...
+for /f "tokens=5" %%a in ('netstat -ano ^| findstr :8000 ^| findstr LISTENING') do (
+    echo [*] Killing PID %%a on port 8000
+    taskkill /PID %%a /F >nul 2>&1
+)
+
 echo Starting server on http://localhost:8000 ...
 echo Press Ctrl+C to stop.
 echo.

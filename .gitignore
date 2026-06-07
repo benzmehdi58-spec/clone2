@@ -67,3 +67,7 @@ keys.txt
 backend/cyberai.db
 dash*.json
 cyberai_detailed_report.md
+
+*.parquet
+*.pt
+backend/analyst_chroma_db/

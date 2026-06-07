@@ -211,9 +211,12 @@ class UEBAReplayEngine:
         try:
             with open(self.results_path, "r", encoding="utf-8") as f:
                 self.alerts = json.load(f)
-            # Only replay the alerts (verdict == "ATTACK" or "THREAT") to make the simulation interesting
-            self.alerts = [a for a in self.alerts if a.get("verdict") in ["ATTACK", "THREAT"]]
-            print(f"[UEBAReplayEngine] Loaded {len(self.alerts)} UEBA anomalies.")
+            # Load ALL records so the simulation shows mixed benign/attack traffic
+            self.alerts = self.alerts  # no filter — show all
+            # Separate attacks for logging
+            attacks = [a for a in self.alerts if a.get("verdict") not in ["NORMAL", "BENIGN", None]]
+            print(f"[UEBAReplayEngine] Loaded {len(self.alerts)} UEBA records ({len(attacks)} anomalies).")
+
         except Exception as e:
             print(f"[UEBAReplayEngine] Error loading results: {e}")
 

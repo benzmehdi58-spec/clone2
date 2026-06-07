@@ -203,7 +203,7 @@ class MITREMapper:
 
     def enrich_ssh(self, result: dict) -> dict:
         """Enriches SSH Auth predictions with MITRE context."""
-        prediction = result.get("prediction", "Normal")
+        prediction = result.get("prediction") or "Normal"
         
         if prediction == "Normal" or prediction == "BENIGN":
             result["mitre"] = {

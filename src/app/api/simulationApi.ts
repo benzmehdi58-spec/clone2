@@ -1,4 +1,4 @@
-const BASE = import.meta.env.VITE_API_URL || (import.meta.env.PROD ? "https://benzmehdi-cyber.hf.space" : "http://localhost:8000");
+const BASE = import.meta.env.VITE_API_URL || "http://localhost:8000";
 
 async function apiFetch(path: string, opts?: RequestInit) {
   const res = await fetch(`${BASE}${path}`, opts);

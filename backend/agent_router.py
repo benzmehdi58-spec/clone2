@@ -150,90 +150,66 @@ if keys_file.exists():
 def get_key(key_name):
     return keys.get(key_name, os.environ.get(key_name))
 
-# ── B. Model Registry ──
-MODELS = [
-    {
-        "name": "openrouter",
-        "url": "https://openrouter.ai/api/v1/chat/completions",
-        "key_name": "OPENROUTER_API_KEY",
-        "model": "google/gemini-2.5-flash",
-        "priority": 1
-    },
-    {
-        "name": "gemini",
-        "url": "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
-        "key_name": "GEMINI_API_KEY",
-        "model": "gemini-2.5-flash",
-        "priority": 2
-    },
-    {
-        "name": "groq",
-        "url": "https://api.groq.com/openai/v1/chat/completions",
-        "key_name": "GROQ_API_KEY",
-        "model": "llama-3.3-70b-versatile",
-        "priority": 3
-    },
-    {
-        "name": "cerebras",
-        "url": "https://api.cerebras.ai/v1/chat/completions",
-        "key_name": "CEREBRAS_API_KEY",
-        "model": "llama3.1-70b",
-        "priority": 4
-    },
-]
+# ── B. Model Registry ── (OpenRouter only)
+OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
+OPENROUTER_MODEL = "google/gemini-2.5-flash"
 
 # ── C. Rate Limit Tracker ──
 _rate_limited_until: dict = {}
 
-# ── D. call_llm() ──
+# ── D. call_llm() ── tries both keys, falls back on 402
 async def call_llm(messages, tools=None):
-    errors = []
-    for m in sorted(MODELS, key=lambda x: x["priority"]):
-        now = time.time()
-        if m["name"] in _rate_limited_until and _rate_limited_until[m["name"]] > now:
-            errors.append(f"{m['name']} rate limited (cooldown)")
-            continue
-            
-        api_key = get_key(m["key_name"])
+    key_names = ["OPENROUTER_API_KEY", "OPENROUTER_API_KEY1"]
+    last_error = None
+
+    for key_name in key_names:
+        api_key = get_key(key_name)
         if not api_key:
-            errors.append(f"{m['name']} skipped (no key)")
             continue
-            
+
         payload = {
-            "model": m["model"],
+            "model": OPENROUTER_MODEL,
             "messages": messages,
-            "max_tokens": 1024,
+            "max_tokens": 400,
         }
         if tools:
             payload["tools"] = tools
-            
+
         headers = {
             "Authorization": f"Bearer {api_key}",
             "Content-Type": "application/json"
         }
-        
+
         try:
-            async with httpx.AsyncClient(timeout=30.0) as client:
-                res = await client.post(m["url"], json=payload, headers=headers)
-                
+            async with httpx.AsyncClient(timeout=60.0) as client:
+                res = await client.post(OPENROUTER_URL, json=payload, headers=headers)
+
+            if res.status_code == 402:
+                print(f"[LLM] {key_name} has insufficient credits, trying next key...")
+                last_error = f"{key_name}: insufficient credits (402)"
+                continue  # try next key
+
             if res.status_code == 429:
-                _rate_limited_until[m["name"]] = time.time() + 60
-                errors.append(f"{m['name']} rate limited (429)")
-                continue
-                
+                last_error = f"{key_name}: rate limited (429)"
+                continue  # try next key
+
             if res.status_code != 200:
-                errors.append(f"{m['name']} error {res.status_code}: {res.text}")
+                last_error = f"{key_name}: error {res.status_code}: {res.text}"
                 continue
-                
+
             data = res.json()
-            message = data["choices"][0]["message"]
-            return message
-            
+            if not data.get("choices"):
+                last_error = f"{key_name}: empty choices in response"
+                continue
+
+            print(f"[LLM] Using {key_name} successfully")
+            return data["choices"][0]["message"]
+
         except Exception as e:
-            errors.append(f"{m['name']} request failed: {e}")
+            last_error = f"{key_name}: request failed: {e}"
             continue
-            
-    raise Exception(f"All LLMs failed: {'; '.join(errors)}")
+
+    raise Exception(f"All OpenRouter keys failed: {last_error}")
 
 # ── E. Tool definitions ──
 TOOLS = [
@@ -437,8 +413,8 @@ RULES:
 - Always state the kill chain stage number and name.
 - Never say "I cannot determine" — make your best assessment from the data given.
 - Keep total response under 400 words.
-- NEVER override the ML's verdict. If the briefing says VERDICT: ATTACK, you MUST generate a full, long, detailed incident report.
-- If the briefing says VERDICT: BENIGN, generate a short incident report explaining why the traffic was classified as normal.
+- NEVER override the ML's verdict. If the briefing says VERDICT: ATTACK or VERDICT: THREAT, you MUST generate a full, long, detailed incident report. DO NOT output the "Flow classified as normal" string under ANY circumstances if the verdict is ATTACK.
+- If and ONLY if the briefing says VERDICT: BENIGN, you MUST still use the `create_incident` tool, but put the sentence "Flow classified as normal — no action required." inside the `report_markdown` parameter. DO NOT use this sentence for ATTACKs.
 - CRITICAL: You MUST use the `create_incident` tool to submit your final report. Put your markdown report inside the `report_markdown` parameter. Do not output the report as regular chat text.
 - Check the source: If auth_log use get_ssh_auth_session. If insider_threat use get_ueba_user_behavior. If Network use get_flows_by_type.
 - You MUST use the tools to retrieve raw logs and summarize the specific events/commands the attacker executed.
@@ -466,7 +442,7 @@ async def run_agent(trigger_payload: dict, app_state):
         
         messages = [
             {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": f"A new security alert has been triggered!\n\n{mitre_context}\n\nPlease analyze this alert and generate an incident report.\n\nRaw Log Evidence:\n```json\n{json.dumps(trigger_payload, indent=2)}\n```"}
+            {"role": "user", "content": mitre_context}
         ]
         
         has_created_incident = False
@@ -603,96 +579,145 @@ async def manual_analyze(req: AnalyzeManualRequest, request: Request):
         mapper = MITREMapper()
         if "label" in alert and "prediction" not in alert:
             alert["prediction"] = alert["label"]
-        if "prediction" not in alert:
-            alert["prediction"] = alert.get("attack_type") or alert.get("verdict")
-        if "prediction" in alert and "verdict" not in alert:
+        if not alert.get("prediction"):
+            alert["prediction"] = alert.get("attack_type") or alert.get("verdict") or "Normal"
+        if not alert.get("verdict"):
             alert["verdict"] = alert["prediction"]
         
-        if alert.get("source") == "Network":
+        if alert.get("source") in ("Network",):
             alert = mapper.enrich(alert, alert)
-        elif alert.get("source") in ["auth_log", "SSH"]:
+        elif alert.get("source") in ("SSH", "auth_log"):
             alert = mapper.enrich_ssh(alert)
-        elif alert.get("source") in ["insider_threat", "UEBA"]:
+        elif alert.get("source") in ("UEBA", "insider_threat"):
             alert = mapper.enrich_ueba(alert)
 
     if "vulnerability_analysis" not in alert and getattr(request.app.state, "rag_analyzer", None):
         import asyncio
         alert = await asyncio.to_thread(request.app.state.rag_analyzer.analyze, alert)
 
-    briefing = build_mitre_context(alert)
-    
-    with open("debug_agent.txt", "a", encoding="utf-8") as f:
-        f.write(f"\n--- NEW RUN ---\n")
-        f.write(f"ALERT: {json.dumps(alert)}\n")
-        f.write(f"BRIEFING:\n{briefing}\n")
+    mitre_context = build_mitre_context(alert)
 
     messages = [
         {"role": "system", "content": SYSTEM_PROMPT},
-        {"role": "user", "content": f"A new security alert has been triggered!\n\n{briefing}\n\nPlease analyze this alert and generate an incident report.\n\nRaw Log Evidence:\n```json\n{json.dumps(alert, indent=2)}\n```"}
+        {"role": "user",   "content": f"Manual investigation requested:\n{mitre_context}"}
     ]
 
     incident_data = None
 
     try:
-        for _ in range(8):
-            msg = await call_llm(messages, tools=TOOLS)
-            messages.append(msg)
-
-            if not msg.get("tool_calls"):
-                # LLM responded with plain text instead of using tools.
-                # Print it so we can debug what the model said.
-                print(f"[AGENT] LLM plain-text response (no tool call):\n{msg.get('content', '')}")
-                # Do NOT break — give the agent another turn to self-correct.
-                # Prompt it explicitly if no tool was called.
-                messages.append({
-                    "role":    "user",
-                    "content": (
-                        "You have not called any tool yet. "
-                        "Please call `get_recent_alerts` first, then `create_incident` to submit your report. "
-                        "Do NOT write the report as plain text."
-                    )
-                })
-                continue
-
-            for tc in msg["tool_calls"]:
-                name = tc["function"]["name"]
-                try:
-                    args = json.loads(tc["function"]["arguments"])
-                except (json.JSONDecodeError, KeyError) as e:
-                    messages.append({
-                        "role":        "tool",
-                        "content":     f"Tool call failed — invalid JSON: {e}. Retry with valid JSON.",
-                        "tool_call_id": tc.get("id", "unknown")
-                    })
-                    continue
-
-                if name == "create_incident" and not incident_data:
-                    incident_data = args
-
-                res = run_tool(name, args, request.app.state)
-                messages.append({
-                    "role":         "tool",
-                    "tool_call_id": tc["id"],
-                    "content":      res
-                })
-
-            if incident_data:
-                break  # Report saved — exit loop
-
-        if incident_data:
-            inc_id = f"INC-MANUAL-{int(time.time())}"
-            incident_data["id"] = inc_id
-            incident_data["timestamp"] = datetime.datetime.now().isoformat()
-            database.save_incident(incident_data)
-            return incident_data
+        # ── FAST TRACK DATA GATHERING (No LLM Tool Overhead) ──
+        gathered_data_summary = ""
+        source = alert.get("source", "")
+        
+        if source in ("SSH", "auth_log"):
+            ip = alert.get("src_ip")
+            if ip:
+                import sqlite3, os
+                db_path = os.path.join(os.path.dirname(__file__), "cyberai.db")
+                conn = sqlite3.connect(db_path)
+                cursor = conn.cursor()
+                cursor.execute("SELECT date, hostname, process, message FROM ssh_logs WHERE src_ip = ? LIMIT 30", (ip,))
+                rows = cursor.fetchall()
+                conn.close()
+                if rows:
+                    gathered_data_summary = "\n\nRAW SSH LOGS:\n" + "\n".join([f"{r[0]} {r[1]} {r[2]}: {r[3]}" for r in rows])
+                    
+        elif source in ("UEBA", "insider_threat"):
+            user_id = alert.get("user_id")
+            if user_id:
+                import sqlite3, os
+                db_path = os.path.join(os.path.dirname(__file__), "cyberai.db")
+                conn = sqlite3.connect(db_path)
+                cursor = conn.cursor()
+                cursor.execute("SELECT date, log_type, activity, filename, email_to, url FROM ueba_logs WHERE user = ? LIMIT 30", (user_id,))
+                rows = cursor.fetchall()
+                conn.close()
+                if rows:
+                    gathered_data_summary = "\n\nRAW UEBA LOGS:\n" + "\n".join([str(r) for r in rows])
+                    
         else:
-            print("[AGENT] Loop exhausted without create_incident. Full messages:")
-            print(json.dumps(messages, indent=2))
-            return {"report_markdown": "Agent completed analysis but did not generate a final report."}
+            # Network flows
+            raw = alert.get("raw", "")
+            if raw:
+                gathered_data_summary = f"\n\nRAW FLOW DATA:\n{raw}"
+
+        # ── FAST REPORT GENERATION (Single Shot LLM Call) ──
+        # We MUST use a new message list here
+        verdict = alert.get("verdict", "ATTACK")
+
+        report_system = (
+            "You are a cybersecurity analyst writing an incident report for a SOC team. "
+            "Write clear, structured markdown. No tool calls. No JSON. Just write the report."
+        )
+
+        if verdict in ("ATTACK", "ZERO_DAY", "THREAT"):
+            attack_type = alert.get("attack_type", "Unknown").upper()
+            report_user = (
+                f"Write a cybersecurity incident report for this detected attack:\n\n"
+                f"VERDICT: {verdict} — {attack_type}\n"
+                f"CONFIDENCE: {alert.get('confidence', 0):.1f}%\n"
+                f"SOURCE: {alert.get('source', 'Unknown')}\n"
+                f"MITRE TACTIC: {alert.get('mitre', {}).get('tactic', 'Unknown')}\n"
+                f"MITRE TECHNIQUE: {alert.get('mitre', {}).get('technique', 'Unknown')} "
+                f"({alert.get('mitre', {}).get('technique_id', '')})\n"
+                f"KILL CHAIN STAGE: {alert.get('mitre', {}).get('kill_chain_stage', '?')}"
+                f" — {alert.get('mitre', {}).get('kill_chain_name', '')}\n"
+                f"{gathered_data_summary}\n\n"
+                f"Write the report using exactly these sections:\n\n"
+                f"## Incident Summary\n"
+                f"## MITRE ATT&CK Context\n"
+                f"## Threat Assessment\n"
+                f"## Recommended Actions\n"
+                f"## Analyst Notes\n\n"
+                f"Keep it under 350 words. Be specific and actionable."
+            )
+        else:
+            report_user = (
+                f"This alert has been classified as BENIGN with "
+                f"{alert.get('confidence', 0):.1f}% confidence. "
+                f"Write a one-paragraph summary confirming no action is required."
+            )
+
+        report_messages = [
+            {"role": "system", "content": report_system},
+            {"role": "user",   "content": report_user},
+        ]
+
+        final_msg = await call_llm(report_messages, tools=None)
+        report_md = (final_msg.get("content") or "").strip()
+        print(f"[AGENT] Phase 2 report length: {len(report_md)} chars")
+
+        if not report_md:
+            report_md = (
+                f"## Incident Summary\nThe ML pipeline detected a **{verdict}** event "
+                f"({alert.get('attack_type', 'unknown attack')}) with "
+                f"{alert.get('confidence', 0):.1f}% confidence. "
+                f"Manual analyst review required."
+            )
+
+        # Determine severity from verdict
+        severity_map = {"ZERO_DAY": "critical", "ATTACK": "high", "THREAT": "medium"}
+        severity = severity_map.get(verdict, "low")
+        if alert.get("severity") == "critical":
+            severity = "critical"
+
+        inc_id = f"INC-MANUAL-{int(time.time())}"
+        incident_data = {
+            "id":             inc_id,
+            "title":          alert.get("title") or f"{alert.get('attack_type','Unknown').upper()} Detected",
+            "severity":       severity,
+            "report_markdown": report_md,
+            "correlated_ids": [alert.get("id", "")],
+            "timestamp":      datetime.datetime.now().isoformat(),
+        }
+        database.save_incident(incident_data)
+        print(f"[AGENT] Report generated successfully for {alert.get('id')}")
+        return incident_data
 
     except Exception as e:
         print(f"[AGENT ERROR] {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
 
 @router.get("/api/incidents")
 def get_incidents(request: Request):

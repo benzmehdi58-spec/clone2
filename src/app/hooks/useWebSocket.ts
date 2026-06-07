@@ -1,6 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import type { Alert } from '../types';
-import { MOCK_ALERTS, generateStreamAlert } from '../data/mockAlerts';
 
 export interface WebSocketData {
   connected: boolean;
@@ -10,9 +9,7 @@ export interface WebSocketData {
   networkAlerts: Alert[];
 }
 
-const WS_URL = import.meta.env.PROD 
-  ? 'wss://benzmehdi-cyber.hf.space/ws/alerts' 
-  : 'ws://localhost:8000/ws/alerts';
+const WS_URL = import.meta.env.VITE_WS_URL || 'ws://localhost:8000/ws/alerts';
 const MAX_ALERTS = 500;
 
 export function useWebSocket(): WebSocketData {
@@ -20,28 +17,7 @@ export function useWebSocket(): WebSocketData {
   const [allAlerts, setAllAlerts] = useState<Alert[]>([]);
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const mockSeedRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const mockStreamRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const connectedRef = useRef(false);
-
-  const stopMock = useCallback(() => {
-    if (mockSeedRef.current) { clearTimeout(mockSeedRef.current); mockSeedRef.current = null; }
-    if (mockStreamRef.current) { clearInterval(mockStreamRef.current); mockStreamRef.current = null; }
-  }, []);
-
-  const startMock = useCallback(() => {
-    // Seed after 1.2 s if still not connected to real backend
-    mockSeedRef.current = setTimeout(() => {
-      if (connectedRef.current) return;
-      setAllAlerts(MOCK_ALERTS.slice());
-
-      // Stream a new alert every 4 s while disconnected
-      mockStreamRef.current = setInterval(() => {
-        if (connectedRef.current) { stopMock(); return; }
-        setAllAlerts(prev => [generateStreamAlert(), ...prev].slice(0, MAX_ALERTS));
-      }, 4000);
-    }, 1200);
-  }, [stopMock]);
 
   const connect = useCallback(() => {
     if (wsRef.current?.readyState === WebSocket.OPEN) return;
@@ -49,18 +25,43 @@ export function useWebSocket(): WebSocketData {
       const ws = new WebSocket(WS_URL);
       wsRef.current = ws;
 
-      ws.onopen = () => {
+      ws.onopen = async () => {
         connectedRef.current = true;
         setConnected(true);
-        stopMock();
+        // Pre-load historical alerts
+        try {
+          const BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+          const res = await fetch(`${BASE}/api/logs?limit=100`);
+          if (res.ok) {
+            const history = await res.json();
+            if (history && Array.isArray(history.logs)) {
+              const normalized = history.logs.map((l: Alert & { block_id?: string }) => ({
+                ...l,
+                id: l.id || l.block_id || `log-${Math.random()}`,
+              }));
+              setAllAlerts(normalized.slice(0, MAX_ALERTS));
+            }
+          }
+        } catch (e) {
+          console.error("Failed to load initial alerts:", e);
+        }
       };
 
       ws.onmessage = ({ data }) => {
         try {
           const parsed = JSON.parse(data);
+          // Ignore keepalive pings from server
+          if (parsed?.type === 'ping') return;
           if (Array.isArray(parsed)) {
             setAllAlerts(parsed.slice(0, MAX_ALERTS));
-          } else if (parsed?.id) {
+          } else if (parsed?.type === "new_alert" && parsed?.data) {
+            const alert = parsed.data as Alert;
+            // Normalize: use block_id as fallback for id
+            if (!alert.id && (alert as any).block_id) alert.id = (alert as any).block_id;
+            setAllAlerts(prev => [alert, ...prev].slice(0, MAX_ALERTS));
+          } else if (parsed?.id || (parsed as any)?.block_id || parsed?.source) {
+            // Normalize: use block_id as fallback for id
+            if (!parsed.id) parsed.id = (parsed as any).block_id;
             setAllAlerts(prev => [parsed as Alert, ...prev].slice(0, MAX_ALERTS));
           }
         } catch { /* ignore malformed frames */ }
@@ -76,23 +77,21 @@ export function useWebSocket(): WebSocketData {
     } catch {
       reconnectRef.current = setTimeout(connect, 3000);
     }
-  }, [stopMock]);
+  }, []);
 
   useEffect(() => {
-    startMock();
     connect();
     return () => {
-      stopMock();
       if (reconnectRef.current) clearTimeout(reconnectRef.current);
       wsRef.current?.close();
     };
-  }, [connect, startMock, stopMock]);
+  }, [connect]);
 
   return {
     connected,
     allAlerts,
-    sshAlerts: allAlerts.filter(a => a.source === 'SSH'),
-    uebaAlerts: allAlerts.filter(a => a.source === 'UEBA'),
-    networkAlerts: allAlerts.filter(a => a.source === 'Network'),
+    sshAlerts: allAlerts.filter(a => a.source === 'SSH' || a.source === 'auth_log'),
+    uebaAlerts: allAlerts.filter(a => a.source === 'UEBA' || a.source === 'insider_threat'),
+    networkAlerts: allAlerts.filter(a => a.source === 'Network' || a.source === 'network'),
   };
 }

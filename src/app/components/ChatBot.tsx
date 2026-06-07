@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, type KeyboardEvent } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Sparkles, X, Send, Bot, User, Minimize2, Copy, Check } from 'lucide-react';
+import { Sparkles, X, Send, Bot, User, Minimize2, Copy, Check, Paperclip } from 'lucide-react';
 
 /* ─── Types ─── */
 interface Message {
@@ -8,6 +8,7 @@ interface Message {
   role: 'user' | 'assistant';
   content: string;
   timestamp: Date;
+  sources?: { filename: string; doc_type: string; similarity: number; snippet: string }[];
 }
 
 /* ─── Quick-action suggestion chips ─── */
@@ -187,6 +188,23 @@ function MessageBubble({ msg }: { msg: Message }) {
           ? <p className="text-sm leading-relaxed">{msg.content}</p>
           : <MarkdownMessage content={msg.content} />
         }
+
+        {!isUser && msg.sources && msg.sources.length > 0 && (
+          <div className="mt-3 pt-2 border-t border-[#30363D]/50 space-y-1.5">
+            <div className="text-[10px] text-[#8B949E] uppercase font-semibold mb-1">Retrieved Sources</div>
+            {msg.sources.map((src, i) => (
+              <div key={i} className="text-[11px] p-2 rounded bg-[#0D1117] border border-[#30363D] text-[#C9D1D9]">
+                <div className="flex items-center gap-2 mb-1 flex-wrap">
+                  <span className="text-[#58A6FF] font-medium break-all">{src.filename}</span>
+                  <span className="text-[#8B949E] text-[9px] uppercase px-1 py-0.5 rounded bg-[#21262D]">{src.doc_type}</span>
+                  <span className="text-[#3FB950] text-[9px]">{(src.similarity * 100).toFixed(1)}% match</span>
+                </div>
+                <div className="text-[#8B949E] italic text-[10px] line-clamp-3 leading-snug break-words">{src.snippet}</div>
+              </div>
+            ))}
+          </div>
+        )}
+
         <p className="text-[#8B949E]/50 text-[9px] mt-1.5 terminal-font">
           {msg.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
         </p>
@@ -244,8 +262,12 @@ export function ChatBot() {
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [hasUnread, setHasUnread] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
+  const [uploadStatus, setUploadStatus] = useState<string | null>(null);
+  
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Scroll to bottom when messages change
   useEffect(() => {
@@ -260,7 +282,7 @@ export function ChatBot() {
     }
   }, [open]);
 
-  const send = (text: string) => {
+  const send = async (text: string) => {
     const trimmed = text.trim();
     if (!trimmed || loading) return;
 
@@ -275,13 +297,89 @@ export function ChatBot() {
     setInput('');
     setLoading(true);
 
-    // Simulate latency then show backend-not-wired placeholder
-    setTimeout(() => {
-      const aiMsg = buildPlaceholder(trimmed);
-      setMessages(prev => [...prev, aiMsg]);
+    setLoading(true);
+
+    const aiMsgId = `ai-${Date.now()}`;
+    setMessages(prev => [...prev, {
+      id: aiMsgId,
+      role: 'assistant',
+      content: '',
+      timestamp: new Date()
+    }]);
+
+    try {
+      const BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+      const res = await fetch(`${BASE}/api/analyst/chat/stream`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ question: trimmed })
+      });
+
+      if (!res.ok) throw new Error('API Error');
+
+      const reader = res.body?.getReader();
+      const decoder = new TextDecoder();
+      let done = false;
+      let fullContent = '';
+
+      while (reader && !done) {
+        const { value, done: doneReading } = await reader.read();
+        done = doneReading;
+        if (value) {
+          const chunk = decoder.decode(value, { stream: true });
+          const lines = chunk.split('\n');
+          for (const line of lines) {
+            if (line.startsWith('data: ')) {
+              try {
+                const data = JSON.parse(line.slice(6));
+                if (data.type === 'token') {
+                  fullContent += data.content;
+                  setMessages(prev => prev.map(m => m.id === aiMsgId ? { ...m, content: fullContent } : m));
+                } else if (data.type === 'sources') {
+                  setMessages(prev => prev.map(m => m.id === aiMsgId ? { ...m, sources: data.sources } : m));
+                }
+              } catch (e) {
+                // Ignore parsing errors for incomplete chunks
+              }
+            }
+          }
+        }
+      }
+    } catch (err) {
+      setMessages(prev => prev.map(m => m.id === aiMsgId ? { ...m, content: 'Sorry, I encountered an error connecting to the analyst backend.' } : m));
+    } finally {
       setLoading(false);
-      if (!open) setHasUnread(true);
-    }, 900 + Math.random() * 600);
+      setHasUnread(prev => true); // If they closed it during streaming
+    }
+  };
+
+  const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setIsUploading(true);
+    setUploadStatus(`Uploading ${file.name}...`);
+    
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('doc_type', 'general');
+
+    try {
+      const BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+      const res = await fetch(`${BASE}/api/analyst/upload`, {
+        method: 'POST',
+        body: formData
+      });
+      if (!res.ok) throw new Error('Upload failed');
+      setUploadStatus(`Uploaded ${file.name} successfully!`);
+      setTimeout(() => setUploadStatus(null), 3000);
+    } catch (err) {
+      setUploadStatus(`Error uploading ${file.name}`);
+      setTimeout(() => setUploadStatus(null), 3000);
+    } finally {
+      setIsUploading(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
   };
 
   const handleKey = (e: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -393,6 +491,12 @@ export function ChatBot() {
 
             {/* Input bar */}
             <div className="px-3 pb-3 shrink-0">
+              {uploadStatus && (
+                <div className="text-[10px] text-[#8B949E] mb-2 px-1 font-mono flex items-center justify-between">
+                  <span>{uploadStatus}</span>
+                  {isUploading && <span className="animate-pulse">...</span>}
+                </div>
+              )}
               <div
                 className="flex items-end gap-2 rounded-xl px-3 py-2.5 transition-all duration-200"
                 style={{ background: 'rgba(13,17,23,0.7)', border: '1px solid rgba(48,54,61,0.8)' }}
@@ -418,6 +522,22 @@ export function ChatBot() {
                     t.style.height = 'auto';
                     t.style.height = `${Math.min(t.scrollHeight, 80)}px`;
                   }}
+                />
+                <button
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={isUploading || loading}
+                  className="p-1.5 rounded-lg shrink-0 transition-all duration-200 disabled:opacity-30 mr-1"
+                  style={{ background: 'transparent', border: '1px solid rgba(48,54,61,0.8)', color: '#8B949E' }}
+                  title="Upload Document to Knowledge Base"
+                >
+                  <Paperclip className="w-4 h-4" />
+                </button>
+                <input
+                  type="file"
+                  ref={fileInputRef}
+                  onChange={handleUpload}
+                  accept=".pdf,.txt,.md"
+                  className="hidden"
                 />
                 <button
                   onClick={() => send(input)}

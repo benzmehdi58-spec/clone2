@@ -166,8 +166,17 @@ async def lifespan(app: FastAPI):
             state["net_pipeline"] = net
             state["net_metrics"]  = net.smoke_test()
             if "logs_sample" in state["net_metrics"]:
+                _net_sample = state["net_metrics"]["logs_sample"]
+                import time as _time_mod
+                for _l in _net_sample:
+                    _l.setdefault("id", _l.get("block_id", f"NET-{id(_l)}"))
+                    _l.setdefault("source", "Network")
+                    _l.setdefault("time", _time_mod.strftime("%Y-%m-%dT%H:%M:%SZ", _time_mod.gmtime()))
+                    _l.setdefault("title", _l.get("preview", "Network Flow"))
+                    _l.setdefault("reason", _l.get("preview", ""))
+                    _l.setdefault("confidence", _l.get("confidence", 0.0))
                 # Append network logs so they appear in /api/logs
-                state["logs"].extend(state["net_metrics"]["logs_sample"])
+                state["logs"].extend(_net_sample)
                 # Remove from metrics dict to save memory
                 del state["net_metrics"]["logs_sample"]
         except Exception as e:
@@ -215,12 +224,17 @@ async def lifespan(app: FastAPI):
     try:
         with open(SSH_RESULTS_PATH, "r", encoding="utf-8") as _f:
             _ssh_results = _json.load(_f)
+        import time as _time_ssh
         for _r in _ssh_results:
-            _r.setdefault("source",          "auth_log")
+            _r.setdefault("source",      "SSH")
             _r.setdefault("id", _r.get("block_id", "AUTH-" + _r.get("src_ip", "")))
-            _r.setdefault("event_count",     1)
+            _r["block_id"] = _r["id"]
+            _r.setdefault("event_count", 1)
             _r.setdefault("label",  "Anomaly" if _r.get("verdict") == "ATTACK" else "Normal")
-            _r["timestamp_epoch"] = __import__("time").time()
+            _r.setdefault("time",   _time_ssh.strftime("%Y-%m-%dT%H:%M:%SZ", _time_ssh.gmtime()))
+            _r.setdefault("title",  _r.get("preview", "SSH Session"))
+            _r.setdefault("reason", _r.get("preview", ""))
+            _r["timestamp_epoch"] = _time_ssh.time()
             if _r.get("verdict") == "ATTACK":
                 database.save_alert(_r)
         state["ssh_logs"] = _ssh_results
@@ -258,17 +272,21 @@ async def lifespan(app: FastAPI):
     try:
         with open(UEBA_RESULTS_PATH, "r", encoding="utf-8") as _f:
             _ueba_results = _json.load(_f)
-        # Normalise verdict: THREAT → ATTACK, NORMAL → BENIGN
+        import time as _time_ueba
         for _r in _ueba_results:
-            _r.setdefault("source", "insider_threat")
+            _r.setdefault("source", "UEBA")
             _r.setdefault("id", _r.get("block_id", "UEBA-" + _r.get("user_id", "")))
+            _r["block_id"] = _r["id"]
             if _r.get("verdict") == "THREAT":
                 _r["verdict"] = "ATTACK"
-            elif _r.get("verdict") == "NORMAL":
+            elif _r.get("verdict") in ("NORMAL", None):
                 _r["verdict"] = "BENIGN"
             _r.setdefault("label", "Anomaly" if _r.get("verdict") == "ATTACK" else "Normal")
             _r.setdefault("event_count", UEBA_WINDOW_SIZE)
-            _r["timestamp_epoch"] = __import__("time").time()
+            _r.setdefault("time",  _time_ueba.strftime("%Y-%m-%dT%H:%M:%SZ", _time_ueba.gmtime()))
+            _r.setdefault("title", _r.get("preview", "UEBA Window"))
+            _r.setdefault("reason", _r.get("preview", ""))
+            _r["timestamp_epoch"] = _time_ueba.time()
             if _r.get("verdict") == "ATTACK":
                 database.save_alert(_r)
         state["ueba_logs"] = _ueba_results
@@ -304,8 +322,113 @@ async def lifespan(app: FastAPI):
     except Exception as _e:
         print(f"[WARN] UEBA Keras model load error: {_e}")
 
+    # ── Auto-start all simulators so data flows immediately on connect ────────
+    async def _auto_start_simulators():
+        """Wait 3 s for the app to fully bind, then start all replay engines."""
+        await asyncio.sleep(3)
+
+        # ── SSH ──────────────────────────────────────────────────────────────
+        ssh_sim = state.get("ssh_simulator")
+        ssh_evt = state.get("ssh_stop_event")
+        if ssh_sim and ssh_evt and not ssh_sim.active:
+            async def _ssh_cb(ip, session_log):
+                import time as _t
+                alert = {
+                    "id":          f"SSH-SIM-{int(_t.time()*1000)}",
+                    "source":      "SSH",
+                    "time":        _t.strftime("%Y-%m-%dT%H:%M:%SZ", _t.gmtime()),
+                    "src_ip":      ip or "unknown",
+                    "verdict":     "BENIGN",
+                    "confidence":  50.0,
+                    "title":       f"SSH session from {ip}",
+                    "reason":      f"SSH session replay — {len(session_log.splitlines())} log lines",
+                    "preview":     f"SSH session from {ip}",
+                    "raw":         session_log[:300],
+                }
+                lower = session_log.lower()
+                if any(k in lower for k in ("failed password", "invalid user", "authentication failure")):
+                    alert["verdict"]     = "ATTACK"
+                    alert["attack_type"] = "brute_force"
+                    alert["confidence"]  = 92.0
+                    alert["label"]       = "Anomaly"
+                else:
+                    alert["label"] = "Normal"
+                alert["block_id"] = alert["id"]
+                state["ssh_logs"].append(alert)
+                state["ssh_logs"] = state["ssh_logs"][-500:]
+                state["logs"].append(alert)
+                await manager.broadcast(alert)
+                if alert["verdict"] == "ATTACK":
+                    database.save_alert(alert)
+
+            asyncio.ensure_future(ssh_sim.start(_ssh_cb, ssh_evt))
+            print("[AutoSim] SSH replay started automatically")
+
+        # ── UEBA ─────────────────────────────────────────────────────────────
+        ueba_sim = state.get("ueba_simulator")
+        ueba_evt = state.get("ueba_stop_event")
+        if ueba_sim and ueba_evt and not ueba_sim.active:
+            async def _ueba_cb(alert):
+                import time as _t
+                alert = dict(alert)
+                alert["time"]      = _t.strftime("%Y-%m-%dT%H:%M:%SZ", _t.gmtime())
+                alert["id"]        = f"UEBA-SIM-{int(_t.time()*1000)}"
+                alert["block_id"]  = alert["id"]
+                alert["source"]    = "insider_threat"
+                if alert.get("verdict") in ("NORMAL", None):
+                    alert["verdict"] = "BENIGN"
+                alert.setdefault("title",  alert.get("preview", "UEBA Activity"))
+                alert.setdefault("reason", alert.get("preview", "UEBA behavioral window"))
+                state["ueba_logs"].append(alert)
+                state["ueba_logs"] = state["ueba_logs"][-500:]
+                state["logs"].append(alert)
+                await manager.broadcast(alert)
+
+            asyncio.ensure_future(ueba_sim.start(_ueba_cb, ueba_evt))
+            print("[AutoSim] UEBA replay started automatically")
+
+        # ── Network ──────────────────────────────────────────────────────────
+        net_sim = state.get("net_simulator")
+        net_evt = state.get("net_stop_event")
+        if net_sim and net_evt and not net_sim.active:
+            async def _net_cb(flow):
+                import time as _t
+                import pandas as pd
+                try:
+                    pipeline = state.get("net_pipeline")
+                    if pipeline is None:
+                        return
+                    # Run inference synchronously (pipeline expects a DataFrame and is not thread-safe)
+                    df_in = pd.DataFrame([flow])
+                    result_df = pipeline.predict(df_in)
+                    result = result_df.to_dict(orient="records")[0]
+                    
+                    result.setdefault("id",     result.get("block_id", f"NET-SIM-{int(_t.time()*1000)}"))
+                    result.setdefault("source", "Network")
+                    result["time"]     = _t.strftime("%Y-%m-%dT%H:%M:%SZ", _t.gmtime())
+                    result["block_id"] = result["id"]
+                    result.setdefault("title",  result.get("preview", "Network Flow"))
+                    result.setdefault("reason", result.get("preview", ""))
+                    state["net_logs"].append(result)
+                    state["net_logs"] = state["net_logs"][-500:]
+                    state["logs"].append(result)
+                    await manager.broadcast(result)
+                    if result.get("verdict") in ("ATTACK", "ZERO_DAY"):
+                        database.save_alert(result)
+                except Exception as e:
+                    import traceback
+                    traceback.print_exc()
+                    print(f"[AutoSim-Net] {e}")
+
+            asyncio.ensure_future(net_sim.run_scenario("mixed", _net_cb, net_evt, 0.5))
+            print("[AutoSim] Network replay started automatically (mixed, 0.5 fps)")
+
+    asyncio.ensure_future(_auto_start_simulators())
+
     yield
     print("[*] Shutting down.")
+
+
 
 
 # ─── App ──────────────────────────────────────────────────────────────────────
@@ -338,22 +461,47 @@ class ConnectionManager:
     async def broadcast(self, message: dict):
         if "type" not in message and "data" not in message:
             message = {"type": "new_alert", "data": message}
-            
+
+        dead = []
         for connection in self.active_connections:
             try:
                 await connection.send_json(message)
-            except:
-                pass
+            except Exception:
+                dead.append(connection)
+        for d in dead:
+            if d in self.active_connections:
+                self.active_connections.remove(d)
 
 manager = ConnectionManager()
 
 @app.websocket("/ws/alerts")
 async def websocket_alerts(websocket: WebSocket):
     await manager.connect(websocket)
+
+    async def _keepalive():
+        """Send a ping every 20 s so proxies/browsers never kill idle connections."""
+        try:
+            while True:
+                await asyncio.sleep(20)
+                try:
+                    await websocket.send_json({"type": "ping"})
+                except Exception:
+                    break
+        except asyncio.CancelledError:
+            pass
+
+    ping_task = asyncio.create_task(_keepalive())
     try:
         while True:
-            await websocket.receive_text()
+            # Receive frames from client (pong replies or control messages)
+            data = await websocket.receive_text()
+            # If client sends a pong reply, ignore it silently
     except WebSocketDisconnect:
+        pass
+    except Exception:
+        pass
+    finally:
+        ping_task.cancel()
         manager.disconnect(websocket)
 
 # ─── Request / Response Models ────────────────────────────────────────────────
@@ -387,10 +535,16 @@ def get_logs(
         s = search.lower()
         filtered = [l for l in filtered if s in l.get("block_id", "").lower() or s in l.get("session_key", "").lower() or s in l.get("preview", "").lower()]
     if status and status.lower() != "all":
-        target = "Anomaly" if status.lower() == "anomaly" else "Normal"
-        filtered = [l for l in filtered if l["label"] == target]
+        s_val = status.upper()
+        if s_val in ("ATTACK", "BENIGN", "ZERO_DAY", "THREAT"):
+            filtered = [l for l in filtered if l.get("verdict", "").upper() == s_val]
+        else:
+            target = "Anomaly" if status.lower() == "anomaly" else "Normal"
+            filtered = [l for l in filtered if l.get("label") == target]
     if source and source.lower() != "all":
-        filtered = [l for l in filtered if l.get("source", "HDFS").lower() == source.lower()]
+        src_map = {"ssh": "auth_log", "ueba": "insider_threat", "network": "network"}
+        target_src = src_map.get(source.lower(), source.lower())
+        filtered = [l for l in filtered if l.get("source", "HDFS").lower() == target_src]
 
     total  = len(filtered)
     pages  = math.ceil(total / limit)
@@ -801,6 +955,8 @@ async def predict_network(req: NetworkFlowRequest, background_tasks: BackgroundT
     has_triggered_agent = False
     from agent_router import run_agent
     for result in results:
+        asyncio.create_task(manager.broadcast(result))
+        
         if result.get("verdict") != "BENIGN" and result.get("prediction") != "Normal":
             confidence = float(result.get("confidence", 0))
             attack_type = result.get("attack_type") or "unknown"
@@ -814,7 +970,6 @@ async def predict_network(req: NetworkFlowRequest, background_tasks: BackgroundT
             
             database.save_alert(result)
             state["alert_buffer"].append(result)
-            asyncio.create_task(manager.broadcast(result))
             
             if not has_triggered_agent:
                 background_tasks.add_task(run_agent, trigger_payload=result, app_state=request.app.state)
@@ -912,10 +1067,11 @@ async def predict_auth(req: AuthLogRequest, background_tasks: BackgroundTasks, r
     state["ssh_logs"] = state["ssh_logs"][-500:]
     state["logs"].append(result)
 
+    asyncio.create_task(manager.broadcast(result))
+
     if is_attack:
         database.save_alert(result)
         state["alert_buffer"].append(result)
-        asyncio.create_task(manager.broadcast(result))
         from agent_router import run_agent
         background_tasks.add_task(run_agent, trigger_payload=result, app_state=request.app.state)
 
@@ -1027,10 +1183,11 @@ async def predict_ueba(req: UEBARequest, background_tasks: BackgroundTasks, requ
     state["ueba_logs"] = state["ueba_logs"][-500:]
     state["logs"].append(result)
 
+    asyncio.create_task(manager.broadcast(result))
+
     if is_threat:
         database.save_alert(result)
         state["alert_buffer"].append(result)
-        asyncio.create_task(manager.broadcast(result))
         from agent_router import run_agent
         background_tasks.add_task(run_agent, trigger_payload=result, app_state=request.app.state)
 
@@ -1201,15 +1358,33 @@ async def start_ueba_sim(req: UebaSimRequest, background_tasks: BackgroundTasks,
     state["ueba_stop_event"].clear()
     
     async def ueba_callback(alert: dict):
+        import time as _time
+        # Normalize fields so the frontend can render them
+        alert = dict(alert)
+        alert["time"] = _time.strftime("%Y-%m-%dT%H:%M:%SZ", _time.gmtime())
+        alert["id"] = f"UEBA-SIM-{int(_time.time()*1000)}"
+        alert["block_id"] = alert["id"]
+        alert["source"] = "insider_threat"
+        # Normalize verdict: NORMAL -> BENIGN so frontend renders consistently
+        if alert.get("verdict") in ("NORMAL", None):
+            alert["verdict"] = "BENIGN"
+        if not alert.get("title"):
+            alert["title"] = alert.get("preview", "UEBA Activity")
+        if not alert.get("reason"):
+            alert["reason"] = alert.get("preview", "UEBA behavioral window")
+
         state["ueba_logs"].append(alert)
         state["ueba_logs"] = state["ueba_logs"][-500:]
         state["logs"].append(alert)
-        
-        database.save_alert(alert)
-        state["alert_buffer"].append(alert)
+        # Always broadcast so live simulation shows live feed
         asyncio.create_task(manager.broadcast(alert))
-        from agent_router import run_agent
-        background_tasks.add_task(run_agent, trigger_payload=alert, app_state=request.app.state)
+
+        is_threat = alert.get("verdict") not in ("BENIGN", "NORMAL", None)
+        if is_threat:
+            database.save_alert(alert)
+            state["alert_buffer"].append(alert)
+            from agent_router import run_agent
+            background_tasks.add_task(run_agent, trigger_payload=alert, app_state=request.app.state)
 
     background_tasks.add_task(sim.start, ueba_callback, state["ueba_stop_event"])
     return {"status": "started"}
