@@ -1,7 +1,9 @@
 import type { Alert } from '../types';
 import { getMockLogsResponse, getMockReport } from '../data/mockAlerts';
 
-const BASE = 'http://localhost:8000';
+const BASE = import.meta.env.PROD 
+  ? 'https://benzmehdi-cyber.hf.space' 
+  : 'http://localhost:8000';
 
 export interface LogsParams {
   page?: number;

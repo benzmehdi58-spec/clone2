@@ -10,7 +10,9 @@ export interface WebSocketData {
   networkAlerts: Alert[];
 }
 
-const WS_URL = 'ws://localhost:8000/ws/alerts';
+const WS_URL = import.meta.env.PROD 
+  ? 'wss://benzmehdi-cyber.hf.space/ws/alerts' 
+  : 'ws://localhost:8000/ws/alerts';
 const MAX_ALERTS = 500;
 
 export function useWebSocket(): WebSocketData {
