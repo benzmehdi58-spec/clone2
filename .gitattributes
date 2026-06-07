@@ -30,5 +30,5 @@ backend/enterprise-attack.json filter=lfs diff=lfs merge=lfs -text
 *.txt filter=lfs diff=lfs merge=lfs -text
 *.csv filter=lfs diff=lfs merge=lfs -text
 *.json !text !filter !merge !diff
-public/models/*-shard* filter=lfs diff=lfs merge=lfs -text
 *.pdf filter=lfs diff=lfs merge=lfs -text
+public/models/*-shard* filter=lfs diff=lfs merge=lfs -text
