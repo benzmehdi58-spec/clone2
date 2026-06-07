@@ -45,27 +45,40 @@ export interface LogsParams {
 
 export const fetchLogs = async (params: LogsParams = {}) => {
   const { page = 1, limit = 50, search = "", status = "all", source = "all" } = params;
+  const backendStatus = status === "ATTACK" || status === "ZERO_DAY" ? "anomaly" : status === "BENIGN" ? "normal" : "all";
+  const backendSource = source === "SSH" ? "auth_log" : source === "UEBA" ? "insider_threat" : source === "Network" ? "Network" : "all";
+  
   const qs = new URLSearchParams({
     page:   String(page),
     limit:  String(limit),
     ...(search ? { search } : {}),
-    ...(status && status !== "all" ? { status } : {}),
-    ...(source && source !== "all" ? { source } : {}),
+    ...(backendStatus !== "all" ? { status: backendStatus } : {}),
+    ...(backendSource !== "all" ? { source: backendSource } : {}),
   });
   try {
     const data = await apiFetch(`/api/logs?${qs}`);
     // Normalise for the table: map backend fields → UI fields
-    const logs = (data.logs ?? []).map((l: any) => ({
-      id:         l.block_id,
-      timestamp:  "Real-time",
-      source:     l.source || "HDFS",
-      preview:    l.preview,
-      raw:        l.raw,
-      prediction: l.label,
-      confidence: l.confidence,
-      truth:      l.truth,
-      eventCount: l.event_count,
-    }));
+    const logs = (data.logs ?? []).map((l: any) => {
+      // Map internal sources to UI sources
+      const uiSource = l.source === "auth_log" ? "SSH" : 
+                       l.source === "insider_threat" ? "UEBA" : 
+                       l.source === "Network" ? "Network" : l.source || "HDFS";
+      return {
+        id:         l.block_id || l.id,
+        time:       "Real-time",
+        timestamp:  "Real-time",
+        source:     uiSource,
+        title:      l.title || l.preview || "",
+        preview:    l.preview,
+        raw:        l.raw,
+        prediction: l.label,
+        verdict:    l.verdict || (l.label === "Anomaly" ? "ATTACK" : "BENIGN"),
+        attack_type: l.attack_type,
+        confidence: l.confidence,
+        truth:      l.truth,
+        eventCount: l.event_count,
+      };
+    });
     return { logs, total: data.total, page: data.page, pages: data.pages };
   } catch (e) {
     console.warn("fetchLogs failed", e);

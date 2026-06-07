@@ -1,250 +1,322 @@
-import { useState, useEffect } from "react";
-import { useParams, useNavigate } from "react-router";
-import { ArrowLeft, Download, ShieldAlert, Flag, Activity, AlertTriangle, Loader2, BrainCircuit } from "lucide-react";
-import { Button } from "../components/ui/Button";
-import ReactMarkdown from "react-markdown";
-import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/Card";
-import { Badge } from "../components/ui/Badge";
-import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Cell, Tooltip } from "recharts";
-import { fetchAlertDetail, analyzeAlert } from "../api/agent";
-import { COLORS } from "../constants";
+import { useState, useEffect } from 'react';
+import { useParams, useLocation, useNavigate } from 'react-router';
+import { motion } from 'motion/react';
+import { ArrowLeft, Copy, Check, Loader2, AlertTriangle, ShieldCheck, Zap, ListChecks, Bot } from 'lucide-react';
+import { toast } from 'sonner';
+import { analyzeAlert } from '../api/agent';
+import { useWebSocketData } from '../contexts/WebSocketContext';
+import { MitreRadar } from '../components/MitreRadar';
+import type { Alert } from '../types';
 
-export function AlertDetail() {
-  const { id } = useParams();
-  const navigate = useNavigate();
-  const [data, setData] = useState<any>(null);
-  const [isLoading, setIsLoading] = useState(true);
-  const [agentLoading, setAgentLoading] = useState(false);
-  const [agentReport, setAgentReport] = useState<string | null>(null);
-
-  const handleAnalyze = async () => {
-    setAgentLoading(true);
-    try {
-      const json = await analyzeAlert(data.id, data.source, data);
-      setAgentReport(json.report_markdown || "Agent returned an empty report.");
-    } catch (e) {
-      console.error(e);
-      setAgentReport("Failed to load agent report.");
-    } finally {
-      setAgentLoading(false);
-    }
+/* ─── Verdict badge ─── */
+function VerdictBadge({ verdict }: { verdict?: string }) {
+  const s: Record<string, { bg: string; color: string; border: string }> = {
+    ATTACK:   { bg: 'rgba(227,0,15,0.12)',   color: '#E3000F', border: 'rgba(227,0,15,0.3)' },
+    BENIGN:   { bg: 'rgba(52,211,153,0.1)',  color: '#34D399', border: 'rgba(52,211,153,0.3)' },
+    ZERO_DAY: { bg: 'rgba(167,139,250,0.1)', color: '#A78BFA', border: 'rgba(167,139,250,0.3)' },
   };
+  if (!verdict) return null;
+  const v = s[verdict] ?? { bg: 'rgba(48,54,61,0.5)', color: '#8B949E', border: '#30363D' };
+  return (
+    <span className="inline-flex px-2.5 py-1 rounded-md text-xs font-bold"
+      style={{ background: v.bg, color: v.color, border: `1px solid ${v.border}` }}>
+      {verdict.replace('_', '-')}
+    </span>
+  );
+}
 
-  useEffect(() => {
-    const loadData = async () => {
-      setIsLoading(true);
-      const result = await fetchAlertDetail(id || "ALT-892");
-      setData(result);
-      setIsLoading(false);
-    };
-    loadData();
-  }, [id]);
+/* ─── JSON display (safe — no innerHTML) ─── */
+function JsonDisplay({ data }: { data: Alert }) {
+  const entries = Object.entries(data).filter(([, v]) => v !== undefined && v !== null) as [string, string | number | boolean][];
+  return (
+    <pre className="terminal-font text-xs leading-relaxed p-5 overflow-auto h-full"
+      style={{ background: 'transparent', color: '#F0F6FC', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+      <span style={{ color: '#8B949E' }}>{'{'}</span>
+      {entries.map(([key, val], i) => (
+        <div key={key} className="ml-4">
+          <span style={{ color: '#79C0FF' }}>"{key}"</span>
+          <span style={{ color: '#8B949E' }}>: </span>
+          <span style={{
+            color: typeof val === 'string' ? '#A5D6FF'
+              : typeof val === 'number' ? '#D2A8FF'
+              : typeof val === 'boolean' ? '#FF7B72'
+              : '#F0F6FC',
+          }}>
+            {typeof val === 'string' ? `"${val}"` : String(val)}
+          </span>
+          {i < entries.length - 1 && <span style={{ color: '#8B949E' }}>,</span>}
+        </div>
+      ))}
+      <span style={{ color: '#8B949E' }}>{'}'}</span>
+    </pre>
+  );
+}
 
-  if (isLoading || !data) {
-    return (
-      <div className="flex justify-center items-center h-64">
-        <Loader2 className="h-8 w-8 animate-spin text-[#717182]" />
-      </div>
-    );
-  }
+/* ─── Markdown section renderer ─── */
+function MarkdownBody({ content, isActions }: { content: string; isActions?: boolean }) {
+  const [checked, setChecked] = useState<Set<number>>(new Set());
+  const lines = content.split('\n').filter(l => l.trim());
 
   return (
-    <div className="flex flex-col gap-6 max-w-7xl mx-auto">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-4">
-          <Button variant="ghost" size="icon" onClick={() => navigate('/alerts')}>
-            <ArrowLeft className="h-5 w-5" />
-          </Button>
-          <div>
-            <div className="flex items-center gap-3">
-              <h1 className="text-2xl font-semibold text-white">{data.title}</h1>
-              <Badge variant={data.severity === 'critical' ? 'critical' : data.severity === 'warning' ? 'warning' : 'info'}>
-                {data.severity.toUpperCase()}
-              </Badge>
+    <div className="space-y-2 text-sm text-[#8B949E] leading-relaxed">
+      {lines.map((line, i) => {
+        if (line.startsWith('### ')) {
+          return <p key={i} className="text-[#F0F6FC] font-semibold mt-4 mb-1">{line.slice(4)}</p>;
+        }
+        if ((line.startsWith('- [ ] ') || line.startsWith('- [x] ')) && isActions) {
+          const text = line.replace(/^- \[.\] /, '');
+          const done = checked.has(i);
+          return (
+            <label key={i} className="flex items-start gap-2.5 cursor-pointer group">
+              <input
+                type="checkbox"
+                checked={done}
+                onChange={() => setChecked(prev => {
+                  const n = new Set(prev);
+                  done ? n.delete(i) : n.add(i);
+                  return n;
+                })}
+                className="mt-0.5 accent-[#E3000F]"
+              />
+              <span className={`transition-colors ${done ? 'line-through text-[#8B949E]/50' : 'group-hover:text-[#F0F6FC]'}`}>
+                {text}
+              </span>
+            </label>
+          );
+        }
+        if (line.startsWith('- ')) {
+          return (
+            <div key={i} className="flex items-start gap-2">
+              <span className="text-[#E3000F] mt-0.5 shrink-0">›</span>
+              <span>{line.slice(2)}</span>
             </div>
-            <p className="text-sm text-[#717182] mt-1 font-mono">
-              Alert ID: {data.id} • Source: {data.source} • Time: {data.time}
-            </p>
-          </div>
+          );
+        }
+        // Inline bold
+        const parts = line.split(/(\*\*[^*]+\*\*)/g);
+        return (
+          <p key={i}>
+            {parts.map((part, j) =>
+              part.startsWith('**') && part.endsWith('**')
+                ? <strong key={j} className="text-[#F0F6FC]">{part.slice(2, -2)}</strong>
+                : part
+            )}
+          </p>
+        );
+      })}
+    </div>
+  );
+}
+
+/* ─── Section config ─── */
+const SECTION_CONFIG: Record<string, { icon: typeof AlertTriangle; color: string }> = {
+  'Incident Summary':     { icon: AlertTriangle, color: '#E3000F' },
+  'MITRE ATT&CK Context': { icon: ShieldCheck,   color: '#A78BFA' },
+  'Threat Assessment':    { icon: Zap,           color: '#FBBF24' },
+  'Recommended Actions':  { icon: ListChecks,    color: '#34D399' },
+};
+
+function parseReport(md: string): { title: string; body: string }[] {
+  return md
+    .split(/(?=^## )/m)
+    .filter(Boolean)
+    .map(section => {
+      const lines = section.split('\n');
+      return {
+        title: lines[0].replace(/^## /, '').trim(),
+        body: lines.slice(1).join('\n').trim(),
+      };
+    });
+}
+
+/* ─── Main component ─── */
+export function AlertDetail() {
+  const { id } = useParams<{ id: string }>();
+  const { state } = useLocation() as { state: { alert?: Alert } };
+  const { allAlerts } = useWebSocketData();
+  const navigate = useNavigate();
+
+  // Resolve alert from nav state first, then WebSocket cache
+  const alert: Alert | undefined = state?.alert ?? allAlerts.find(a => a.id === id);
+
+  const [report, setReport]   = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError]     = useState<string | null>(null);
+  const [copied, setCopied]   = useState(false);
+
+  useEffect(() => {
+    if (!id) return;
+    setLoading(true);
+    setError(null);
+    setReport(null);
+    analyzeAlert(id, alert?.source ?? '', alert as unknown as Record<string, unknown>)
+      .then(r => { setReport(r.report_markdown || r.report); setLoading(false); })
+      .catch(e => { setError(e.message); setLoading(false); });
+  }, [id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const copyJson = () => {
+    if (!alert) return;
+    navigator.clipboard.writeText(JSON.stringify(alert, null, 2)).then(() => {
+      setCopied(true);
+      toast.success('JSON copied to clipboard');
+      setTimeout(() => setCopied(false), 2000);
+    });
+  };
+
+  const sections = report ? parseReport(report) : [];
+
+  const isAttack = alert?.verdict === 'ATTACK' || alert?.verdict === 'ZERO_DAY';
+
+  return (
+    <div className="flex flex-col h-[calc(100vh-4rem)]">
+      {/* Header */}
+      <div
+        className="px-5 py-3.5 flex items-center gap-4 shrink-0"
+        style={{ borderBottom: '1px solid rgba(48,54,61,0.7)', background: 'rgba(13,17,23,0.8)' }}
+      >
+        <button
+          onClick={() => navigate(-1)}
+          className="flex items-center gap-1.5 text-[#8B949E] hover:text-[#F0F6FC] transition-colors text-sm"
+        >
+          <ArrowLeft className="w-4 h-4" /> Back
+        </button>
+
+        <div className="w-px h-5 bg-[#30363D]" />
+
+        <div className="flex items-center gap-3 flex-1">
+          <span className="text-[#8B949E] text-xs terminal-font">{alert?.id ?? id}</span>
+          {alert && <VerdictBadge verdict={alert.verdict} />}
+          {alert && (
+            <span className="text-[#8B949E] text-xs hidden sm:block truncate max-w-xs">{alert.title}</span>
+          )}
         </div>
-        <div className="flex items-center gap-3">
-          <Button variant="outline">
-            <Download className="h-4 w-4 mr-2" />
-            Export Report
-          </Button>
-          <Button variant="outline" className="text-[#3FB950] border-[#30363D] hover:bg-[#3FB950]/10">
-            <Flag className="h-4 w-4 mr-2" />
-            Mark False Positive
-          </Button>
-          <Button variant="danger">
-            <ShieldAlert className="h-4 w-4 mr-2" />
-            Escalate
-          </Button>
+
+        <div className="flex items-center gap-2 ml-auto">
+          <span className="text-[#8B949E] text-xs hidden md:block">{alert?.time}</span>
+          {alert && (
+            <button
+              onClick={copyJson}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs transition-all"
+              style={{ border: '1px solid rgba(48,54,61,0.7)', color: '#8B949E' }}
+            >
+              {copied ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+              {copied ? 'Copied' : 'Copy JSON'}
+            </button>
+          )}
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Left Panel (60% equivalent if 2 cols, using 2 of 3) */}
-        <div className="lg:col-span-2 flex flex-col gap-6">
-          <Card>
-            <CardHeader>
-              <CardTitle>Top Contributing Features</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="h-[300px] w-full">
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={data.shapData} layout="vertical" margin={{ left: 150, right: 20 }}>
-                    <XAxis type="number" hide />
-                    <YAxis dataKey="feature" type="category" axisLine={false} tickLine={false} tick={{fill: COLORS.textPrimary, fontSize: 12}} width={140} />
-                    <Tooltip 
-                      cursor={{fill: COLORS.border, opacity: 0.4}}
-                      contentStyle={{ backgroundColor: COLORS.surface, borderColor: COLORS.border, color: COLORS.textPrimary }}
-                      formatter={(val: number, name: string, props: any) => [props.payload.raw, 'Raw Value']}
-                    />
-                    <Bar dataKey="value" radius={[0, 4, 4, 0]}>
-                      {data.shapData.map((entry: any, index: number) => (
-                        <Cell key={`cell-${index}`} fill={entry.type === 'positive' ? COLORS.red : COLORS.blue} />
-                      ))}
-                    </Bar>
-                  </BarChart>
-                </ResponsiveContainer>
+      {/* Split body */}
+      <div className="flex flex-1 overflow-hidden">
+        {/* ── Left: Raw JSON terminal ── */}
+        <div
+          className="w-1/2 shrink-0 flex flex-col overflow-hidden"
+          style={{ borderRight: '1px solid rgba(48,54,61,0.7)' }}
+        >
+          <div
+            className="px-4 py-3 flex items-center gap-2 shrink-0"
+            style={{ borderBottom: '1px solid rgba(48,54,61,0.5)', background: 'rgba(13,17,23,0.6)' }}
+          >
+            <span className="flex gap-1.5">
+              <span className="w-3 h-3 rounded-full bg-[#E3000F]/60" />
+              <span className="w-3 h-3 rounded-full bg-amber-400/60" />
+              <span className="w-3 h-3 rounded-full bg-emerald-400/60" />
+            </span>
+            <span className="text-[#8B949E] text-xs terminal-font ml-2">alert.json</span>
+          </div>
+          <div className="flex-1 overflow-auto" style={{ background: 'rgba(9,12,16,0.6)' }}>
+            {alert ? (
+              <JsonDisplay data={alert} />
+            ) : (
+              <div className="flex flex-col items-center justify-center h-full text-center p-6">
+                <AlertTriangle className="w-8 h-8 text-[#30363D] mb-3" />
+                <p className="text-[#8B949E] text-sm">Alert not found in live cache</p>
+                <p className="text-[#8B949E]/50 text-xs mt-1">ID: {id}</p>
               </div>
-              <div className="flex items-center justify-center gap-6 mt-4 text-sm text-[#717182]">
-                <div className="flex items-center gap-2">
-                  <span className="w-3 h-3 rounded-sm" style={{ backgroundColor: COLORS.red }} /> Pushes prediction toward Anomaly
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className="w-3 h-3 rounded-sm" style={{ backgroundColor: COLORS.blue }} /> Pushes prediction toward Normal
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle>{data.source === 'insider_threat' ? '7-Day Behavioral Timeline' : 'Raw Data Features'}</CardTitle>
-            </CardHeader>
-            <CardContent>
-              {data.source === 'insider_threat' ? (
-                <div className="relative pt-6 pb-2 px-4 max-h-[400px] overflow-y-auto custom-scrollbar">
-                  <div className="absolute left-6 top-8 bottom-4 w-0.5 bg-[#30363D]"></div>
-                  {Array.from({ length: 7 }).map((_, i) => {
-                    const startDate = new Date(data.window_start || Date.now());
-                    startDate.setDate(startDate.getDate() + i);
-                    const isAnomalous = i >= 4; // Mock anomaly towards the end of the window
-                    return (
-                      <div key={i} className="relative flex items-start gap-4 mb-6">
-                        <div className={`z-10 w-4 h-4 rounded-full mt-1 ${isAnomalous ? 'bg-[#F85149] shadow-[0_0_10px_rgba(248,81,73,0.5)]' : 'bg-[#3FB950]'}`}></div>
-                        <div className={`flex-1 p-3 rounded-md border ${isAnomalous ? 'bg-[#F85149]/10 border-[#F85149]/50' : 'bg-[#0D1117] border-[#30363D]'}`}>
-                          <div className="flex justify-between items-center mb-2">
-                            <span className="text-sm font-semibold text-white">Day {i + 1} • {startDate.toLocaleDateString()}</span>
-                            {isAnomalous ? (
-                              <Badge variant="critical">High Risk Activity</Badge>
-                            ) : (
-                              <Badge variant="outline" className="text-[#3FB950] border-[#3FB950]/30">Normal</Badge>
-                            )}
-                          </div>
-                          <div className="grid grid-cols-3 gap-2 text-xs">
-                            <div className="text-[#717182]">Logons: <span className={isAnomalous ? "text-[#F85149] font-mono" : "text-white font-mono"}>{isAnomalous ? Math.floor(Math.random() * 20 + 10) : Math.floor(Math.random() * 5 + 1)}</span></div>
-                            <div className="text-[#717182]">Files: <span className={isAnomalous ? "text-[#F85149] font-mono" : "text-white font-mono"}>{isAnomalous ? Math.floor(Math.random() * 500 + 100) : Math.floor(Math.random() * 50 + 10)}</span></div>
-                            <div className="text-[#717182]">After-hours: <span className={isAnomalous ? "text-[#F85149] font-mono" : "text-white font-mono"}>{isAnomalous ? "Yes" : "No"}</span></div>
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              ) : (
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 max-h-[400px] overflow-y-auto pr-2 custom-scrollbar">
-                  {data.features.map((f: any, i: number) => (
-                    <div 
-                      key={i} 
-                      className={`p-3 rounded-md border ${f.isAnomalous ? 'bg-[#F85149]/10 border-[#F85149]/50' : 'bg-[#0D1117] border-[#30363D]'}`}
-                    >
-                      <div className={`text-xs ${f.isAnomalous ? 'text-[#F85149]' : 'text-[#717182]'} mb-1 truncate`} title={f.name}>
-                        {f.name}
-                      </div>
-                      <div className={`font-mono text-sm ${f.isAnomalous ? 'text-[#F85149] font-bold' : 'text-[#e9ebef]'}`}>
-                        {f.value}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </CardContent>
-          </Card>
+            )}
+          </div>
         </div>
 
-        {/* Right Panel (40% equivalent, 1 of 3 cols) */}
-        <div className="flex flex-col gap-6">
-          <Card className="bg-[#161B22] border-[#F85149]/30">
-            <CardContent className="p-6">
-              <div className="flex items-center justify-center mb-6">
-                <div className="relative flex items-center justify-center w-32 h-32 rounded-full border-4 border-[#F85149]/20">
-                  <svg className="absolute inset-0 w-full h-full transform -rotate-90">
-                    <circle 
-                      cx="60" cy="60" r="58" 
-                      fill="none" stroke={COLORS.red} strokeWidth="4" 
-                      strokeDasharray="364" strokeDashoffset={364 - (364 * (data.confidence / 100))} 
-                      className="origin-center" 
-                    />
-                  </svg>
-                  <div className="text-center">
-                    <div className="text-3xl font-bold font-mono text-white">{data.confidence}%</div>
-                    <div className="text-xs text-[#F85149] uppercase font-semibold">Confidence</div>
-                  </div>
-                </div>
-              </div>
-              <h3 className="font-semibold text-white mb-2 flex items-center gap-2">
-                <Activity className="h-4 w-4" style={{ color: COLORS.blue }} /> Model Explanation
-              </h3>
-              {agentReport ? (
-                <div className="text-sm text-[#e9ebef] leading-relaxed prose prose-invert prose-p:my-2 prose-h3:text-white prose-h3:font-semibold prose-strong:text-[#F85149]">
-                  <ReactMarkdown>{agentReport}</ReactMarkdown>
-                </div>
-              ) : (
-                <>
-                  <div className="text-sm text-[#e9ebef] leading-relaxed prose prose-invert prose-p:my-2 prose-h3:text-white prose-h3:font-semibold prose-strong:text-[#F85149]">
-                    <ReactMarkdown>{data.explanation}</ReactMarkdown>
-                  </div>
-                  <Button 
-                    variant="outline" 
-                    className="mt-4 w-full border-[#30363D] hover:bg-[#30363D]/50"
-                    onClick={handleAnalyze}
-                    disabled={agentLoading}
-                  >
-                    {agentLoading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <BrainCircuit className="h-4 w-4 mr-2" />}
-                    {agentLoading ? "Analyzing Context..." : "Analyze with Agent"}
-                  </Button>
-                </>
-              )}
-            </CardContent>
-          </Card>
+        {/* ── Right: AI Intelligence Briefing ── */}
+        <div className="flex-1 flex flex-col overflow-hidden">
+          <div
+            className="px-5 py-3 flex items-center gap-2 shrink-0"
+            style={{ borderBottom: '1px solid rgba(48,54,61,0.5)', background: 'rgba(13,17,23,0.6)' }}
+          >
+            <Bot className="w-4 h-4 text-[#E3000F]" style={{ filter: 'drop-shadow(0 0 6px rgba(227,0,15,0.6))' }} />
+            <span className="text-[#F0F6FC] text-sm font-semibold">LangChain AI Intelligence Report</span>
+            {loading && <Loader2 className="w-3.5 h-3.5 text-[#8B949E] animate-spin ml-auto" />}
+          </div>
 
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <AlertTriangle className="h-4 w-4" style={{ color: COLORS.amber }} /> Similar Past Alerts
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="flex flex-col gap-3">
-              {data.similarAlerts.map((past: any, i: number) => (
-                <div key={i} className="flex flex-col p-3 rounded-md bg-[#0D1117] border border-[#30363D]">
-                  <div className="flex items-center justify-between mb-1">
-                    <span className="text-sm font-semibold text-white">{past.id}</span>
-                    <Badge variant="outline" className="text-xs">{past.match}</Badge>
+          <div className="flex-1 overflow-y-auto p-5 space-y-4">
+            {loading && !report && (
+              <div className="flex flex-col items-center justify-center h-64 gap-4">
+                <div className="relative">
+                  <div className="w-12 h-12 rounded-full border-2 border-[#E3000F]/20 flex items-center justify-center">
+                    <Bot className="w-5 h-5 text-[#E3000F]" />
                   </div>
-                  <div className="flex items-center justify-between text-xs">
-                    <span className="text-[#717182]">{past.date}</span>
-                    <span className={past.status === 'True Positive' ? 'text-[#F85149]' : 'text-[#3FB950]'}>
-                      {past.status}
-                    </span>
-                  </div>
+                  <Loader2 className="w-12 h-12 text-[#E3000F] animate-spin absolute inset-0" />
                 </div>
-              ))}
-            </CardContent>
-          </Card>
+                <p className="text-[#8B949E] text-sm">AI agent analyzing threat…</p>
+              </div>
+            )}
+
+            {error && (
+              <div
+                className="rounded-xl p-4"
+                style={{ background: 'rgba(227,0,15,0.06)', border: '1px solid rgba(227,0,15,0.2)' }}
+              >
+                <p className="text-[#E3000F] text-sm font-medium mb-1">Analysis failed</p>
+                <p className="text-[#8B949E] text-xs">{error}</p>
+                <p className="text-[#8B949E]/60 text-xs mt-2">Ensure the backend is running at localhost:8000</p>
+              </div>
+            )}
+
+            {sections.map(({ title, body }) => {
+              const cfg = SECTION_CONFIG[title];
+              const Icon = cfg?.icon ?? AlertTriangle;
+              const isMitre   = title.toLowerCase().includes('mitre');
+              const isActions = title.toLowerCase().includes('action');
+              return (
+                <motion.div
+                  key={title}
+                  initial={{ opacity: 0, y: 12 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.35 }}
+                  className="glass-card rounded-xl overflow-hidden"
+                >
+                  <div className="px-4 py-3 flex items-center gap-2.5" style={{ borderBottom: '1px solid rgba(48,54,61,0.5)' }}>
+                    <Icon className="w-4 h-4 shrink-0" style={{ color: cfg?.color ?? '#8B949E' }} />
+                    <span className="text-[#F0F6FC] font-semibold text-sm">{title}</span>
+                  </div>
+                  <div className="p-4">
+                    {isMitre && alert?.mitre_technique && (
+                      <MitreRadar technique={alert.mitre_technique} techniqueId={alert.mitre_id} />
+                    )}
+                    <MarkdownBody content={body} isActions={isActions} />
+                  </div>
+                </motion.div>
+              );
+            })}
+
+            {/* Threat metadata pill row when alert is available */}
+            {alert && !loading && (
+              <div className="flex flex-wrap gap-2 mt-2">
+                {[
+                  { label: 'Source',     value: alert.source },
+                  { label: 'Confidence', value: `${alert.confidence}%` },
+                  { label: 'Attack Type', value: alert.attack_type ?? alert.prediction ?? 'Unknown' },
+                  isAttack ? { label: 'MITRE', value: alert.mitre_id ?? '—' } : null,
+                ].filter(Boolean).map(item => item && (
+                  <div key={item.label} className="px-3 py-1.5 rounded-lg text-xs"
+                    style={{ background: 'rgba(22,27,34,0.8)', border: '1px solid rgba(48,54,61,0.7)' }}>
+                    <span className="text-[#8B949E]">{item.label}: </span>
+                    <span className="text-[#F0F6FC] font-medium">{item.value}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
       </div>
     </div>

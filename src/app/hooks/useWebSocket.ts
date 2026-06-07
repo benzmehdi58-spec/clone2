@@ -45,7 +45,7 @@ function connect() {
           // Format based on source
           let formattedAlert: any;
           
-          if (message.source === 'ssh' || message.source === 'auth_log') {
+          if (alert.source === 'ssh' || alert.source === 'auth_log') {
             formattedAlert = {
               id: alert.id || `SSH-${Date.now()}`,
               time: "Real-time",
@@ -60,7 +60,7 @@ function connect() {
               mitre: alert.mitre,
               ...alert,
             };
-          } else if (message.source === 'ueba' || message.source === 'insider_threat') {
+          } else if (alert.source === 'ueba' || alert.source === 'insider_threat') {
             formattedAlert = {
               id: alert.id || `UEBA-${Date.now()}`,
               time: "Real-time",
@@ -125,7 +125,16 @@ function connect() {
   }
 }
 
-export function useWebSocket() {
+export interface WebSocketData {
+  connected: boolean;
+  lastAlert: any;
+  allAlerts: any[];
+  sshAlerts: any[];
+  uebaAlerts: any[];
+  networkAlerts: any[];
+}
+
+export function useWebSocket(): WebSocketData {
   const [, setTick] = useState(0);
 
   useEffect(() => {

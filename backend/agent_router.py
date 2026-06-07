@@ -34,6 +34,10 @@ def build_mitre_context(result: dict) -> str:
             f"Confidence: {confidence:.1f}%\n"
             f"Assessment: Normal traffic — no threat indicators detected."
         )
+        
+    # Normalize THREAT to ATTACK so the LLM system prompt rule triggers
+    if str(verdict).upper() == "THREAT":
+        verdict = "ATTACK"
 
     if kill_stage <= 2:
         urgency      = "LOW"
@@ -149,25 +153,32 @@ def get_key(key_name):
 # ── B. Model Registry ──
 MODELS = [
     {
+        "name": "openrouter",
+        "url": "https://openrouter.ai/api/v1/chat/completions",
+        "key_name": "OPENROUTER_API_KEY",
+        "model": "google/gemini-2.5-flash",
+        "priority": 1
+    },
+    {
         "name": "gemini",
         "url": "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
         "key_name": "GEMINI_API_KEY",
         "model": "gemini-2.5-flash",
-        "priority": 1
+        "priority": 2
     },
     {
         "name": "groq",
         "url": "https://api.groq.com/openai/v1/chat/completions",
         "key_name": "GROQ_API_KEY",
         "model": "llama-3.3-70b-versatile",
-        "priority": 2
+        "priority": 3
     },
     {
         "name": "cerebras",
         "url": "https://api.cerebras.ai/v1/chat/completions",
         "key_name": "CEREBRAS_API_KEY",
         "model": "llama3.1-70b",
-        "priority": 3
+        "priority": 4
     },
 ]
 
@@ -191,6 +202,7 @@ async def call_llm(messages, tools=None):
         payload = {
             "model": m["model"],
             "messages": messages,
+            "max_tokens": 1024,
         }
         if tools:
             payload["tools"] = tools
@@ -425,8 +437,9 @@ RULES:
 - Always state the kill chain stage number and name.
 - Never say "I cannot determine" — make your best assessment from the data given.
 - Keep total response under 400 words.
-- If verdict is BENIGN respond with one sentence only: "Flow classified as normal — no action required."
-- If [ZERO-DAY] appears in the briefing add a [ZERO-DAY ALERT] header and treat urgency one level higher.
+- NEVER override the ML's verdict. If the briefing says VERDICT: ATTACK, you MUST generate a full, long, detailed incident report.
+- If the briefing says VERDICT: BENIGN, generate a short incident report explaining why the traffic was classified as normal.
+- CRITICAL: You MUST use the `create_incident` tool to submit your final report. Put your markdown report inside the `report_markdown` parameter. Do not output the report as regular chat text.
 - Check the source: If auth_log use get_ssh_auth_session. If insider_threat use get_ueba_user_behavior. If Network use get_flows_by_type.
 - You MUST use the tools to retrieve raw logs and summarize the specific events/commands the attacker executed.
 - CRITICAL: You MUST use the `create_incident` tool to submit your final report. Put your markdown report inside the `report_markdown` parameter. Do not output the report as regular chat text.
@@ -453,7 +466,7 @@ async def run_agent(trigger_payload: dict, app_state):
         
         messages = [
             {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": mitre_context}
+            {"role": "user", "content": f"A new security alert has been triggered!\n\n{mitre_context}\n\nPlease analyze this alert and generate an incident report.\n\nRaw Log Evidence:\n```json\n{json.dumps(trigger_payload, indent=2)}\n```"}
         ]
         
         has_created_incident = False
@@ -555,6 +568,11 @@ async def manual_analyze(req: AnalyzeManualRequest, request: Request):
     # Priority 1: full alert dict passed inline
     if req.alert:
         alert = req.alert
+        if "raw_payload" in alert and isinstance(alert["raw_payload"], dict):
+            # Flatten raw_payload into the top-level dict so we can read verdict/prediction
+            for k, v in alert["raw_payload"].items():
+                if k not in alert or not alert[k]:
+                    alert[k] = v
 
     # Priority 2: find in alert_buffer by ID
     if not alert:
@@ -576,6 +594,8 @@ async def manual_analyze(req: AnalyzeManualRequest, request: Request):
     if not alert:
         alert = {"id": req.alert_id, "source": req.source,
                  "note": "Manual trigger — full alert context not found in buffer"}
+                 
+    print(f"[DEBUG] manual_analyze alert before enrichment: {json.dumps(alert, indent=2)}")
 
     # Ensure MITRE and RAG context are fully populated for manual triggers
     if not alert.get("mitre"):
@@ -583,25 +603,32 @@ async def manual_analyze(req: AnalyzeManualRequest, request: Request):
         mapper = MITREMapper()
         if "label" in alert and "prediction" not in alert:
             alert["prediction"] = alert["label"]
+        if "prediction" not in alert:
+            alert["prediction"] = alert.get("attack_type") or alert.get("verdict")
         if "prediction" in alert and "verdict" not in alert:
             alert["verdict"] = alert["prediction"]
         
         if alert.get("source") == "Network":
             alert = mapper.enrich(alert, alert)
-        elif alert.get("source") == "auth_log":
+        elif alert.get("source") in ["auth_log", "SSH"]:
             alert = mapper.enrich_ssh(alert)
-        elif alert.get("source") == "insider_threat":
+        elif alert.get("source") in ["insider_threat", "UEBA"]:
             alert = mapper.enrich_ueba(alert)
 
     if "vulnerability_analysis" not in alert and getattr(request.app.state, "rag_analyzer", None):
         import asyncio
         alert = await asyncio.to_thread(request.app.state.rag_analyzer.analyze, alert)
 
-    mitre_context = build_mitre_context(alert)
+    briefing = build_mitre_context(alert)
+    
+    with open("debug_agent.txt", "a", encoding="utf-8") as f:
+        f.write(f"\n--- NEW RUN ---\n")
+        f.write(f"ALERT: {json.dumps(alert)}\n")
+        f.write(f"BRIEFING:\n{briefing}\n")
 
     messages = [
         {"role": "system", "content": SYSTEM_PROMPT},
-        {"role": "user",   "content": f"Manual investigation requested:\n{mitre_context}"}
+        {"role": "user", "content": f"A new security alert has been triggered!\n\n{briefing}\n\nPlease analyze this alert and generate an incident report.\n\nRaw Log Evidence:\n```json\n{json.dumps(alert, indent=2)}\n```"}
     ]
 
     incident_data = None

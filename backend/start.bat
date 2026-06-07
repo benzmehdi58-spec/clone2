@@ -15,5 +15,5 @@ if not exist ".venv\Scripts\activate.bat" (
 echo Starting server on http://localhost:8000 ...
 echo Press Ctrl+C to stop.
 echo.
-.venv\Scripts\uvicorn main:app --reload --port 8000 --host 0.0.0.0
+.venv\Scripts\python run_server.py
 pause

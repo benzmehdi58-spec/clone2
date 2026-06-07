@@ -1,326 +1,319 @@
-import { useState, useEffect } from "react";
-import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/Card";
-import { Badge } from "../components/ui/Badge";
-import { Button } from "../components/ui/Button";
-import { 
-  AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
-  LineChart, Line
-} from "recharts";
-import { ShieldAlert, Server, Network, Activity, Target, BrainCircuit, User, Key } from "lucide-react";
-import { useNavigate } from "react-router";
-import { fetchDashboardStats, getIncidents } from "../api/agent";
-import { COLORS } from "../constants";
+import { useState, useEffect, useRef } from 'react';
+import { useNavigate } from 'react-router';
+import { motion } from 'motion/react';
+import {
+  ComposedChart, Area, Line, XAxis, YAxis, CartesianGrid,
+  Tooltip as RTooltip, ResponsiveContainer,
+} from 'recharts';
+import { Database, AlertTriangle, Zap, Activity, ChevronRight } from 'lucide-react';
+import { useWebSocketData } from '../contexts/WebSocketContext';
+import { fetchLogs } from '../api/agent';
+import { MetricCard } from '../components/MetricCard';
 
+/* ─── Badges ─── */
+function VerdictBadge({ verdict }: { verdict?: string }) {
+  if (!verdict) return null;
+  const styles: Record<string, { bg: string; color: string; border: string }> = {
+    ATTACK:   { bg: 'rgba(227,0,15,0.12)',   color: '#E3000F', border: 'rgba(227,0,15,0.3)' },
+    BENIGN:   { bg: 'rgba(52,211,153,0.1)',  color: '#34D399', border: 'rgba(52,211,153,0.3)' },
+    ZERO_DAY: { bg: 'rgba(167,139,250,0.1)', color: '#A78BFA', border: 'rgba(167,139,250,0.3)' },
+  };
+  const s = styles[verdict] ?? { bg: 'rgba(48,54,61,0.5)', color: '#8B949E', border: '#30363D' };
+  return (
+    <span className="inline-flex px-2 py-0.5 rounded text-[10px] font-bold" style={{
+      background: s.bg, color: s.color, border: `1px solid ${s.border}`,
+    }}>
+      {verdict.replace('_', '-')}
+    </span>
+  );
+}
+
+function SeverityDot({ severity }: { severity: string }) {
+  const c: Record<string, string> = { critical: '#E3000F', warning: '#FBBF24', info: '#60A5FA' };
+  return (
+    <span className="inline-flex items-center gap-1.5">
+      <span className="w-1.5 h-1.5 rounded-full" style={{ background: c[severity] ?? '#8B949E' }} />
+      <span className="text-[#8B949E] text-xs capitalize">{severity}</span>
+    </span>
+  );
+}
+
+/* ─── Custom recharts tooltip ─── */
+const ChartTooltip = ({ active, payload, label }: { active?: boolean; payload?: { color: string; name: string; value: number }[]; label?: string }) => {
+  if (!active || !payload?.length) return null;
+  return (
+    <div className="glass-card rounded-lg px-3 py-2 text-xs">
+      <p className="text-[#8B949E] mb-1">{label}</p>
+      {payload.map(e => (
+        <p key={e.name} style={{ color: e.color }}>{e.name}: <strong>{e.value}</strong></p>
+      ))}
+    </div>
+  );
+};
+
+/* ─── Main component ─── */
 export function Dashboard() {
   const navigate = useNavigate();
-  const [isLoading, setIsLoading] = useState(true);
-  const [data, setData] = useState<any>(null);
-  const [incidents, setIncidents] = useState<any[]>([]);
+  const { allAlerts, sshAlerts, uebaAlerts, networkAlerts } = useWebSocketData();
+  const prevCountRef = useRef(0);
 
+  const attackAlerts  = allAlerts.filter(a => a.verdict === 'ATTACK');
+  const zeroDayAlerts = allAlerts.filter(a => a.verdict === 'ZERO_DAY');
+  const recentIncidents = allAlerts
+    .filter(a => a.verdict === 'ATTACK' || a.verdict === 'ZERO_DAY')
+    .slice(0, 9);
+
+  // 24-hour rolling chart — seeded by hour labels
+  const [chartData, setChartData] = useState(() =>
+    Array.from({ length: 24 }, (_, i) => {
+      const hr = (new Date().getHours() - 23 + i + 24) % 24;
+      return { label: `${String(hr).padStart(2, '0')}:00`, traffic: 0, threats: 0 };
+    })
+  );
+
+  // Accumulate new WebSocket alerts into current hour bucket
   useEffect(() => {
-    const interval = setInterval(async () => {
-      try {
-        const result = await getIncidents();
-        setIncidents(Object.values(result));
-      } catch (e) {}
-    }, 5000);
-    return () => clearInterval(interval);
+    const newCount = allAlerts.length - prevCountRef.current;
+    if (newCount <= 0) return;
+    prevCountRef.current = allAlerts.length;
+    const newAlerts = allAlerts.slice(0, newCount);
+    const hour = `${String(new Date().getHours()).padStart(2, '0')}:00`;
+    const newThreats = newAlerts.filter(a => a.verdict === 'ATTACK' || a.verdict === 'ZERO_DAY').length;
+    setChartData(prev => prev.map(item =>
+      item.label === hour
+        ? { ...item, traffic: item.traffic + newCount, threats: item.threats + newThreats }
+        : item
+    ));
+  }, [allAlerts]);
+
+  // Seed chart from historical API on mount (parses ISO timestamps)
+  useEffect(() => {
+    fetchLogs({ limit: 200 }).then(({ logs }) => {
+      const buckets: Record<string, { traffic: number; threats: number }> = {};
+      logs.forEach(log => {
+        const d = new Date(log.time);
+        if (!isNaN(d.getTime())) {
+          const key = `${String(d.getHours()).padStart(2, '0')}:00`;
+          if (!buckets[key]) buckets[key] = { traffic: 0, threats: 0 };
+          buckets[key].traffic++;
+          if (log.verdict === 'ATTACK' || log.verdict === 'ZERO_DAY') buckets[key].threats++;
+        }
+      });
+      if (Object.keys(buckets).length > 0) {
+        setChartData(prev => prev.map(item => ({
+          ...item,
+          traffic: item.traffic + (buckets[item.label]?.traffic ?? 0),
+          threats: item.threats + (buckets[item.label]?.threats ?? 0),
+        })));
+      }
+    }).catch(() => {});
   }, []);
 
-  useEffect(() => {
-    const loadData = async () => {
-      const result = await fetchDashboardStats();
-      setData(result);
-      if (isLoading) setIsLoading(false);
-    };
-    loadData(); // initial load
-    const interval = setInterval(loadData, 5000); // refresh every 5s
-    return () => clearInterval(interval);
-  }, [isLoading]);
-
-  if (isLoading || !data) {
-    return (
-      <div className="flex flex-col gap-6 max-w-7xl mx-auto animate-pulse">
-        <div className="flex items-center justify-between">
-          <div className="h-8 w-48 bg-[#30363D] rounded-md"></div>
-          <div className="h-4 w-32 bg-[#30363D] rounded-md"></div>
-        </div>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-          {[1, 2, 3, 4].map((i) => (
-            <Card key={i}>
-              <CardContent className="p-6 h-28 flex flex-col justify-between">
-                <div className="h-4 w-24 bg-[#30363D] rounded-md"></div>
-                <div className="h-8 w-16 bg-[#30363D] rounded-md mt-4"></div>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          {[1, 2].map((i) => (
-            <Card key={i}>
-              <CardHeader className="pb-2 flex flex-row items-center justify-between">
-                <div className="h-6 w-48 bg-[#30363D] rounded-md"></div>
-                <div className="h-6 w-20 bg-[#30363D] rounded-full"></div>
-              </CardHeader>
-              <CardContent>
-                <div className="flex justify-between mb-4">
-                  <div className="h-4 w-40 bg-[#30363D] rounded-md"></div>
-                  <div className="h-4 w-24 bg-[#30363D] rounded-md"></div>
-                </div>
-                <div className="h-16 w-full bg-[#30363D] rounded-md"></div>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
-        <Card>
-          <CardHeader>
-            <div className="h-6 w-48 bg-[#30363D] rounded-md"></div>
-          </CardHeader>
-          <CardContent>
-            <div className="h-[300px] w-full bg-[#30363D]/50 rounded-md"></div>
-          </CardContent>
-        </Card>
-      </div>
-    );
-  }
-
   return (
-    <div className="flex flex-col gap-6 max-w-7xl mx-auto">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-semibold text-white">Dashboard</h1>
-        <div className="text-sm text-[#717182]">Last updated: Just now</div>
-      </div>
+    <div className="p-6 max-w-screen-2xl mx-auto">
+      {/* Header */}
+      <motion.div
+        initial={{ opacity: 0, y: -8 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.4 }}
+        className="mb-8"
+      >
+        <h1 className="text-[#F0F6FC] text-2xl font-bold tracking-tight">Command Center</h1>
+        <p className="text-[#8B949E] text-sm mt-1">
+          Real-time network threat intelligence — <span className="text-[#E3000F]">CyberAI</span>
+        </p>
+      </motion.div>
 
-      {/* Stats Bar */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        <Card>
-          <CardContent className="p-6">
-            <div className="flex justify-between items-start">
-              <div>
-                <p className="text-sm font-medium text-[#717182]">Total Logs Analyzed</p>
-                <h3 className="text-3xl font-bold font-mono text-white mt-2">{data.stats.totalLogsAnalyzed}</h3>
-              </div>
-              <div className="p-2 bg-[#30363D] rounded-md">
-                <Activity className="h-5 w-5" style={{ color: COLORS.blue }} />
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-6">
-            <div className="flex justify-between items-start">
-              <div>
-                <p className="text-sm font-medium text-[#717182]">Anomalies Detected</p>
-                <h3 className="text-3xl font-bold font-mono text-white mt-2">{data.stats.anomaliesDetected}</h3>
-              </div>
-              <div className="p-2 bg-[#30363D] rounded-md">
-                <Target className="h-5 w-5" style={{ color: COLORS.amber }} />
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-6">
-            <div className="flex justify-between items-start">
-              <div>
-                <p className="text-sm font-medium text-[#717182]">Active Alerts</p>
-                <h3 className="text-3xl font-bold font-mono text-white mt-2">{data.stats.activeAlerts}</h3>
-              </div>
-              <div className="p-2 rounded-md" style={{ backgroundColor: `${COLORS.red}1A` }}>
-                <ShieldAlert className="h-5 w-5" style={{ color: COLORS.red }} />
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-6">
-            <div className="flex justify-between items-start">
-              <div>
-                <p className="text-sm font-medium text-[#717182]">Model Accuracy</p>
-                <h3 className="text-3xl font-bold font-mono mt-2" style={{ color: COLORS.green }}>{data.stats.modelAccuracy}</h3>
-              </div>
-              <div className="p-2 rounded-md" style={{ backgroundColor: `${COLORS.green}1A` }}>
-                <BrainCircuit className="h-5 w-5" style={{ color: COLORS.green }} />
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Pipeline Status Cards */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-lg flex items-center gap-2">
-              <Server className="h-5 w-5" style={{ color: COLORS.amber }} /> HDFS System Logs
-            </CardTitle>
-            <Badge variant="success">Healthy</Badge>
-          </CardHeader>
-          <CardContent>
-            <div className="flex justify-between text-sm text-[#717182] mb-4">
-              <span>Last parsed: <span className="font-mono text-[#e9ebef]">{data.pipelineStatus.hdfs.lastParsed}</span></span>
-              <span>Anomaly Rate: <span className="font-mono" style={{ color: COLORS.amber }}>{data.pipelineStatus.hdfs.anomalyRate}</span></span>
-            </div>
-            <div className="h-16">
-              <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={data.pipelineStatus.hdfs.sparkline}>
-                  <Line type="monotone" dataKey="value" stroke={COLORS.amber} strokeWidth={2} dot={false} />
-                </LineChart>
-              </ResponsiveContainer>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-lg flex items-center gap-2">
-              <Network className="h-5 w-5" style={{ color: COLORS.blue }} /> Network Flows (CIC-IDS2017)
-            </CardTitle>
-            <Badge variant="warning">Elevated Activity</Badge>
-          </CardHeader>
-          <CardContent>
-            <div className="flex justify-between text-sm text-[#717182] mb-4">
-              <span>Last parsed: <span className="font-mono text-[#e9ebef]">{data.pipelineStatus.network.lastParsed}</span></span>
-              <span>Anomaly Rate: <span className="font-mono" style={{ color: COLORS.red }}>{data.pipelineStatus.network.anomalyRate}</span></span>
-            </div>
-            <div className="h-16">
-              <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={data.pipelineStatus.network.sparkline}>
-                  <Line type="monotone" dataKey="value" stroke={COLORS.blue} strokeWidth={2} dot={false} />
-                </LineChart>
-              </ResponsiveContainer>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Main Chart */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Anomaly Rate Over Time</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="h-[300px] w-full mt-4">
-            <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={data.anomalyData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
-                <defs>
-                  <linearGradient id="colorNetwork" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor={COLORS.blue} stopOpacity={0.3}/>
-                    <stop offset="95%" stopColor={COLORS.blue} stopOpacity={0}/>
-                  </linearGradient>
-                  <linearGradient id="colorSystem" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor={COLORS.amber} stopOpacity={0.3}/>
-                    <stop offset="95%" stopColor={COLORS.amber} stopOpacity={0}/>
-                  </linearGradient>
-                </defs>
-                <CartesianGrid strokeDasharray="3 3" stroke={COLORS.border} vertical={false} />
-                <XAxis dataKey="time" stroke={COLORS.textMuted} fontSize={12} tickLine={false} axisLine={false} />
-                <YAxis stroke={COLORS.textMuted} fontSize={12} tickLine={false} axisLine={false} />
-                <Tooltip 
-                  contentStyle={{ backgroundColor: COLORS.surface, borderColor: COLORS.border, color: COLORS.textPrimary }}
-                  itemStyle={{ fontSize: 14 }}
-                />
-                <Area type="monotone" dataKey="network" stroke={COLORS.blue} fillOpacity={1} fill="url(#colorNetwork)" name="Network Logs" />
-                <Area type="monotone" dataKey="system" stroke={COLORS.amber} fillOpacity={1} fill="url(#colorSystem)" name="System Logs" />
-              </AreaChart>
-            </ResponsiveContainer>
+      {/* Metric cards */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+        <MetricCard title="Total Analyzed Logs" value={allAlerts.length.toLocaleString()} icon={Database} delay={0}>
+          <div className="flex gap-2 text-[10px] text-[#8B949E] flex-wrap">
+            <span>SSH {sshAlerts.length}</span>
+            <span className="opacity-40">·</span>
+            <span>UEBA {uebaAlerts.length}</span>
+            <span className="opacity-40">·</span>
+            <span>Net {networkAlerts.length}</span>
           </div>
-        </CardContent>
-      </Card>
+        </MetricCard>
 
-      {/* Active Incidents Panel */}
-      {incidents.length > 0 && (
-        <Card className="border-[#F85149]/30">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <BrainCircuit className="h-5 w-5 text-[#F85149]" /> Agent Incident Reports
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {incidents.map((inc: any) => (
-                <div key={inc.id} className="p-4 rounded-lg bg-[#0D1117] border border-[#30363D] hover:border-[#F85149]/50 transition-colors">
-                  <div className="flex justify-between items-start mb-2">
-                    <h4 className="font-semibold text-white">{inc.title}</h4>
-                    <Badge variant={inc.severity === 'critical' ? 'critical' : inc.severity === 'high' ? 'warning' : 'info'}>
-                      {inc.severity?.toUpperCase()}
-                    </Badge>
-                  </div>
-                  <p className="text-xs text-[#717182] font-mono mb-3">{inc.timestamp}</p>
-                  <Button variant="outline" size="sm" className="w-full text-xs" onClick={() => navigate(`/alerts/${inc.correlated_ids?.[0] || inc.id}`)}>
-                    View Full Report
-                  </Button>
-                </div>
-              ))}
+        <MetricCard
+          title="Active Threats"
+          value={attackAlerts.length}
+          subtitle="ATTACK verdict"
+          icon={AlertTriangle}
+          variant="danger"
+          delay={0.07}
+        />
+
+        <MetricCard
+          title="Zero-Day Anomalies"
+          value={zeroDayAlerts.length}
+          subtitle="Unknown pattern"
+          icon={Zap}
+          variant="warning"
+          delay={0.14}
+        />
+
+        <MetricCard title="System Health" value="94%" icon={Activity} variant="success" delay={0.21}>
+          <div className="h-1.5 rounded-full overflow-hidden" style={{ background: 'rgba(48,54,61,0.6)' }}>
+            <motion.div
+              initial={{ width: 0 }}
+              animate={{ width: '94%' }}
+              transition={{ duration: 1.2, delay: 0.5, ease: 'easeOut' }}
+              className="h-full rounded-full bg-emerald-400"
+            />
+          </div>
+        </MetricCard>
+      </div>
+
+      {/* Chart row */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-6">
+        {/* Main chart */}
+        <motion.div
+          initial={{ opacity: 0, y: 16 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.5, delay: 0.28 }}
+          className="lg:col-span-2 glass-card rounded-xl p-5"
+        >
+          <div className="flex items-center justify-between mb-5">
+            <div>
+              <h2 className="text-[#F0F6FC] font-semibold text-sm">Network Traffic vs Threat Volume</h2>
+              <p className="text-[#8B949E] text-xs mt-0.5">Last 24 hours — WebSocket stream</p>
             </div>
-          </CardContent>
-        </Card>
-      )}
+            <div className="flex items-center gap-4 text-[10px] text-[#8B949E]">
+              <span className="flex items-center gap-1.5">
+                <span className="w-3 h-px rounded bg-[#4DABF7] inline-block" />Traffic
+              </span>
+              <span className="flex items-center gap-1.5">
+                <span className="w-3 h-px rounded bg-[#E3000F] inline-block" />Threats
+              </span>
+            </div>
+          </div>
+          <ResponsiveContainer width="100%" height={210}>
+            <ComposedChart data={chartData} margin={{ top: 5, right: 5, bottom: 0, left: -20 }}>
+              <CartesianGrid strokeDasharray="3 6" stroke="#30363D" vertical={false} />
+              <XAxis dataKey="label" tick={{ fill: '#8B949E', fontSize: 10 }} tickLine={false} axisLine={false} interval={3} />
+              <YAxis tick={{ fill: '#8B949E', fontSize: 10 }} tickLine={false} axisLine={false} />
+              <RTooltip content={<ChartTooltip />} />
+              <Area id="area-traffic" type="monotone" dataKey="traffic" name="Traffic" stroke="#4DABF7" strokeWidth={1.5} fill="#4DABF7" fillOpacity={0.12} isAnimationActive={false} />
+              <Line id="line-threats" type="monotone" dataKey="threats" name="Threats" stroke="#E3000F" strokeWidth={2} dot={false} isAnimationActive={false} />
+            </ComposedChart>
+          </ResponsiveContainer>
+        </motion.div>
 
-      {/* Recent Alerts Table */}
-      <Card>
-        <CardHeader className="flex flex-row items-center justify-between">
-          <CardTitle>Recent Critical Alerts</CardTitle>
-          <Button variant="outline" size="sm" onClick={() => navigate('/alerts')}>View All</Button>
-        </CardHeader>
-        <CardContent>
+        {/* Source breakdown */}
+        <motion.div
+          initial={{ opacity: 0, y: 16 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.5, delay: 0.35 }}
+          className="glass-card rounded-xl p-5"
+        >
+          <h2 className="text-[#F0F6FC] font-semibold text-sm mb-5">Source Distribution</h2>
+          {[
+            { label: 'SSH Auth',  count: sshAlerts.length,     color: '#4DABF7' },
+            { label: 'UEBA',      count: uebaAlerts.length,    color: '#9775FA' },
+            { label: 'Network',   count: networkAlerts.length, color: '#51CF66' },
+          ].map(({ label, count, color }) => (
+            <div key={label} className="mb-4">
+              <div className="flex justify-between text-xs mb-1.5">
+                <span className="text-[#8B949E]">{label}</span>
+                <span className="text-[#F0F6FC] font-medium tabular-nums">{count.toLocaleString()}</span>
+              </div>
+              <div className="h-1.5 rounded-full overflow-hidden" style={{ background: 'rgba(48,54,61,0.6)' }}>
+                <motion.div
+                  initial={{ width: 0 }}
+                  animate={{ width: allAlerts.length > 0 ? `${(count / allAlerts.length * 100).toFixed(1)}%` : '0%' }}
+                  transition={{ duration: 0.9, delay: 0.5, ease: 'easeOut' }}
+                  className="h-full rounded-full"
+                  style={{ background: color }}
+                />
+              </div>
+            </div>
+          ))}
+
+          <div className="mt-6 pt-4" style={{ borderTop: '1px solid rgba(48,54,61,0.7)' }}>
+            <div className="flex justify-between text-xs mb-3">
+              <span className="text-[#8B949E]">Attack Rate</span>
+              <span className="text-[#E3000F] font-bold">
+                {allAlerts.length > 0
+                  ? ((attackAlerts.length / allAlerts.length) * 100).toFixed(1)
+                  : '0.0'}%
+              </span>
+            </div>
+            <div className="flex justify-between text-xs">
+              <span className="text-[#8B949E]">Zero-Day Rate</span>
+              <span className="text-amber-400 font-bold">
+                {allAlerts.length > 0
+                  ? ((zeroDayAlerts.length / allAlerts.length) * 100).toFixed(1)
+                  : '0.0'}%
+              </span>
+            </div>
+          </div>
+        </motion.div>
+      </div>
+
+      {/* Recent Critical Incidents table */}
+      <motion.div
+        initial={{ opacity: 0, y: 16 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.5, delay: 0.42 }}
+        className="glass-card rounded-xl overflow-hidden"
+      >
+        <div className="flex items-center justify-between px-5 py-4" style={{ borderBottom: '1px solid rgba(48,54,61,0.7)' }}>
+          <div>
+            <h2 className="text-[#F0F6FC] font-semibold text-sm">Recent Critical Incidents</h2>
+            <p className="text-[#8B949E] text-xs mt-0.5">Latest ATTACK &amp; ZERO-DAY verdicts from live feed</p>
+          </div>
+          <button
+            onClick={() => navigate('/alerts')}
+            className="flex items-center gap-1 text-xs text-[#8B949E] hover:text-[#E3000F] transition-colors"
+          >
+            View all <ChevronRight className="w-3 h-3" />
+          </button>
+        </div>
+
+        {recentIncidents.length === 0 ? (
+          <div className="px-5 py-12 text-center">
+            <Activity className="w-8 h-8 text-[#30363D] mx-auto mb-3" />
+            <p className="text-[#8B949E] text-sm">No critical incidents — system nominal</p>
+            <p className="text-[#8B949E]/50 text-xs mt-1">Waiting for WebSocket feed…</p>
+          </div>
+        ) : (
           <div className="overflow-x-auto">
-            <table className="w-full text-sm text-left">
-              <thead className="text-xs text-[#717182] uppercase bg-[#0D1117] border-y border-[#30363D]">
-                <tr>
-                  <th className="px-4 py-3 font-medium">Time</th>
-                  <th className="px-4 py-3 font-medium">Source</th>
-                  <th className="px-4 py-3 font-medium">Attack Type</th>
-                  <th className="px-4 py-3 font-medium">Severity</th>
-                  <th className="px-4 py-3 font-medium">Confidence</th>
-                  <th className="px-4 py-3 font-medium text-right">Action</th>
+            <table className="w-full">
+              <thead>
+                <tr style={{ borderBottom: '1px solid rgba(48,54,61,0.5)' }}>
+                  {['Time', 'ID', 'Source', 'Title', 'Verdict', 'Severity', 'Confidence'].map(h => (
+                    <th key={h} className="px-4 py-3 text-left text-[#8B949E] text-xs font-medium">{h}</th>
+                  ))}
                 </tr>
               </thead>
               <tbody>
-                {data.recentAlerts.map((alert: any) => (
-                  <tr key={alert.id} className="border-b border-[#30363D] hover:bg-[#30363D]/30 transition-colors group cursor-pointer" onClick={() => navigate(`/alerts/${alert.id}`)}>
-                    <td className="px-4 py-3 font-mono text-[#e9ebef]">{alert.time}</td>
-                    <td className="px-4 py-3">
-                      <div className="flex items-center gap-2">
-                        {alert.source === 'Network' ? <Network className="h-4 w-4" style={{ color: COLORS.blue }}/> : 
-                         alert.source === 'auth_log' ? <Key className="h-4 w-4" style={{ color: '#8957E5' }}/> : 
-                         alert.source === 'insider_threat' ? <User className="h-4 w-4" style={{ color: COLORS.red }}/> : 
-                         <Server className="h-4 w-4" style={{ color: COLORS.amber }}/>}
-                        {alert.source}
-                      </div>
-                    </td>
-                    <td className="px-4 py-3 font-medium text-white">{alert.attack}</td>
-                    <td className="px-4 py-3">
-                      <Badge variant={alert.severity === 'critical' ? 'critical' : 'warning'}>
-                        {alert.severity.toUpperCase()}
-                      </Badge>
-                    </td>
-                    <td className="px-4 py-3 font-mono">
-                      <div className="flex items-center gap-2">
-                        <span>{alert.confidence}%</span>
-                        <div className="w-16 h-1.5 bg-[#30363D] rounded-full overflow-hidden">
-                          <div 
-                            className="h-full bg-white" 
-                            style={{ 
-                              width: `${alert.confidence}%`,
-                              backgroundColor: alert.confidence > 90 ? COLORS.red : COLORS.amber 
-                            }} 
-                          />
-                        </div>
-                      </div>
-                    </td>
-                    <td className="px-4 py-3 text-right">
-                      <Button variant="ghost" size="sm" className="opacity-0 group-hover:opacity-100 transition-opacity">
-                        Investigate
-                      </Button>
+                {recentIncidents.map(alert => (
+                  <tr
+                    key={alert.id}
+                    onClick={() => navigate(`/alerts/${alert.id}`, { state: { alert } })}
+                    className="cursor-pointer transition-colors row-attack"
+                    style={{ borderBottom: '1px solid rgba(48,54,61,0.3)' }}
+                  >
+                    <td className="px-4 py-3 text-[#8B949E] text-xs terminal-font">{alert.time}</td>
+                    <td className="px-4 py-3 text-[#8B949E] text-xs terminal-font">{alert.id}</td>
+                    <td className="px-4 py-3 text-[#F0F6FC] text-xs">{alert.source}</td>
+                    <td className="px-4 py-3 text-[#F0F6FC] text-xs max-w-[200px] truncate">{alert.title}</td>
+                    <td className="px-4 py-3"><VerdictBadge verdict={alert.verdict} /></td>
+                    <td className="px-4 py-3"><SeverityDot severity={alert.severity} /></td>
+                    <td className="px-4 py-3 text-xs terminal-font">
+                      <span style={{ color: alert.confidence > 90 ? '#E3000F' : '#8B949E' }}>
+                        {alert.confidence.toFixed(1)}%
+                      </span>
                     </td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
-        </CardContent>
-      </Card>
+        )}
+      </motion.div>
     </div>
   );
 }

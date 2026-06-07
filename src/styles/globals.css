@@ -1,0 +1,62 @@
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  background-color: #0D1117;
+  color: #F0F6FC;
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 5px; height: 5px; }
+::-webkit-scrollbar-track { background: #0D1117; }
+::-webkit-scrollbar-thumb { background: #30363D; border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: #484F58; }
+
+/* === Animations === */
+@keyframes pulse-red {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(227,0,15,0.7); }
+  70%       { box-shadow: 0 0 0 7px rgba(227,0,15,0); }
+}
+@keyframes pulse-green {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(52,211,153,0.7); }
+  70%       { box-shadow: 0 0 0 7px rgba(52,211,153,0); }
+}
+@keyframes blink-cursor {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0; }
+}
+
+.animate-pulse-red   { animation: pulse-red   1.5s infinite; }
+.animate-pulse-green { animation: pulse-green  2s   infinite; }
+.animate-blink       { animation: blink-cursor 1s   infinite; }
+
+/* === Glass card === */
+.glass-card {
+  background: rgba(22, 27, 34, 0.85);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border: 1px solid rgba(48, 54, 61, 0.9);
+}
+
+/* === Attack row highlight === */
+.row-attack {
+  border-left: 3px solid #E3000F !important;
+  background: rgba(227, 0, 15, 0.04) !important;
+}
+.row-attack:hover {
+  background: rgba(227, 0, 15, 0.07) !important;
+}
+
+/* === Terminal font === */
+.terminal-font {
+  font-family: 'Roboto Mono', 'Courier New', monospace;
+}
+
+/* === JSON syntax colors === */
+.json-key    { color: #79C0FF; }
+.json-string { color: #A5D6FF; }
+.json-number { color: #D2A8FF; }
+.json-bool   { color: #FF7B72; }

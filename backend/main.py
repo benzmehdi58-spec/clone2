@@ -44,8 +44,6 @@ except ImportError:
             else:
                 res[i, -len(arr):] = arr
         return res
-    print("[WARN] TensorFlow not found. HDFS pipeline will use a MockModel.")
-
 # Network pipeline (imported lazily to avoid torch startup noise before TF)
 try:
     from network_pipeline import ThreeStagePipeline
@@ -155,6 +153,10 @@ state: dict = {
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    print("=========================================================================")
+    print("INFO: Loading heavy machine learning models... This may take 15-30 seconds!")
+    print("INFO: Please do not press Ctrl+C, the server is NOT frozen.")
+    print("=========================================================================")
     print("[*] HDFS model has been removed. Proceeding with Network, SSH, and UEBA.")
 
     # ─── Network pipeline ────────────────────────────────────────────────────
@@ -318,6 +320,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+from analyst_router import router as analyst_router
+app.include_router(analyst_router)
+
 class ConnectionManager:
     def __init__(self):
         self.active_connections: list[WebSocket] = []
@@ -361,7 +366,7 @@ class AnalyzeRequest(BaseModel):
 
 @app.get("/api/health")
 def health():
-    return {"status": "ok", "model_loaded": state["model"] is not None}
+    return {"status": "ok", "model_loaded": state["net_pipeline"] is not None}
 
 
 @app.get("/api/logs")

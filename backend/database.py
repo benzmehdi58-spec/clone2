@@ -46,6 +46,28 @@ def init_db():
         )
     """)
     
+    # Create Analyst tables
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS analyst_chat_history (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            session_id TEXT,
+            question TEXT,
+            answer TEXT,
+            sources TEXT,
+            grounded BOOLEAN,
+            timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS analyst_document_registry (
+            filename TEXT PRIMARY KEY,
+            doc_type TEXT,
+            chunks INTEGER,
+            timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    
     conn.commit()
     conn.close()
 
