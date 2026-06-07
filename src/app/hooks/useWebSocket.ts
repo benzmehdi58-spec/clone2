@@ -1,166 +1,96 @@
-import { useState, useEffect, useCallback } from 'react';
-
-let ws: WebSocket | null = null;
-let isConnecting = false;
-let connected = false;
-let allAlerts: any[] = [];
-let lastAlert: any = null;
-
-const listeners = new Set<() => void>();
-
-function notify() {
-  listeners.forEach((listener) => listener());
-}
-
-let reconnectTimeout: ReturnType<typeof setTimeout>;
-let reconnectAttempts = 0;
-
-function connect() {
-  if (ws || isConnecting) return;
-  isConnecting = true;
-
-  try {
-    const baseUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000';
-    const wsUrl = baseUrl.replace(/^http/, 'ws') + '/ws/alerts';
-    ws = new WebSocket(wsUrl);
-
-    ws.onopen = () => {
-      isConnecting = false;
-      connected = true;
-      reconnectAttempts = 0;
-      notify();
-    };
-
-    ws.onmessage = (event) => {
-      try {
-        const message = JSON.parse(event.data);
-        if (message.type === 'ping') {
-          return; // Ignore keep-alive
-        }
-        
-        if (message.type === 'new_alert') {
-          // Unify the alert object
-          const alert = message.data;
-          
-          // Format based on source
-          let formattedAlert: any;
-          
-          if (alert.source === 'ssh' || alert.source === 'auth_log') {
-            formattedAlert = {
-              id: alert.id || `SSH-${Date.now()}`,
-              time: "Real-time",
-              source: "SSH",
-              title: "SSH Authentication Anomaly",
-              reason: alert.preview || "",
-              severity: alert.confidence > 85 ? "critical" : "warning",
-              confidence: alert.confidence,
-              reviewed: false,
-              mitre_technique: alert.mitre?.technique,
-              mitre_id: alert.mitre?.technique_id,
-              mitre: alert.mitre,
-              ...alert,
-            };
-          } else if (alert.source === 'ueba' || alert.source === 'insider_threat') {
-            formattedAlert = {
-              id: alert.id || `UEBA-${Date.now()}`,
-              time: "Real-time",
-              source: "UEBA",
-              title: "Insider Threat Detected",
-              reason: alert.preview || "",
-              severity: alert.confidence > 85 ? "critical" : "warning",
-              confidence: alert.confidence,
-              reviewed: false,
-              mitre_technique: alert.mitre?.technique,
-              mitre_id: alert.mitre?.technique_id,
-              mitre: alert.mitre,
-              ...alert,
-            };
-          } else {
-            formattedAlert = {
-              id: alert.id || `FLOW-${Date.now()}`,
-              time: "Real-time",
-              source: "Network",
-              title: alert.zero_day_flag ? "Zero-Day Anomaly" : `${(alert.attack_type || "UNKNOWN").toUpperCase()} Attack Detected`,
-              reason: `S1 Prob: ${(alert.attack_probability || 0).toFixed(2)} | Type: ${alert.attack_type}`,
-              severity: alert.verdict === "ZERO_DAY" || alert.confidence > 85 ? "critical" : "warning",
-              confidence: alert.confidence,
-              reviewed: false,
-              mitre_technique: alert.mitre?.technique,
-              mitre_id: alert.mitre?.technique_id,
-              mitre: alert.mitre,
-              ...alert,
-            };
-          }
-
-          lastAlert = formattedAlert;
-          allAlerts = [formattedAlert, ...allAlerts].slice(0, 200);
-          notify();
-        }
-      } catch (err) {
-        console.error("Error parsing WS message:", err);
-      }
-    };
-
-    ws.onclose = () => {
-      isConnecting = false;
-      connected = false;
-      ws = null;
-      notify();
-      
-      // Exponential backoff reconnect
-      const delay = Math.min(1000 * Math.pow(2, reconnectAttempts), 30000);
-      reconnectAttempts++;
-      clearTimeout(reconnectTimeout);
-      reconnectTimeout = setTimeout(connect, delay);
-    };
-
-    ws.onerror = (error) => {
-      console.error("WebSocket error:", error);
-      // onclose will handle reconnect
-    };
-  } catch (error) {
-    isConnecting = false;
-    connected = false;
-    ws = null;
-  }
-}
+import { useState, useEffect, useRef, useCallback } from 'react';
+import type { Alert } from '../types';
+import { MOCK_ALERTS, generateStreamAlert } from '../data/mockAlerts';
 
 export interface WebSocketData {
   connected: boolean;
-  lastAlert: any;
-  allAlerts: any[];
-  sshAlerts: any[];
-  uebaAlerts: any[];
-  networkAlerts: any[];
+  allAlerts: Alert[];
+  sshAlerts: Alert[];
+  uebaAlerts: Alert[];
+  networkAlerts: Alert[];
 }
 
+const WS_URL = 'ws://localhost:8000/ws/alerts';
+const MAX_ALERTS = 500;
+
 export function useWebSocket(): WebSocketData {
-  const [, setTick] = useState(0);
+  const [connected, setConnected] = useState(false);
+  const [allAlerts, setAllAlerts] = useState<Alert[]>([]);
+  const wsRef = useRef<WebSocket | null>(null);
+  const reconnectRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const mockSeedRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const mockStreamRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const connectedRef = useRef(false);
 
-  useEffect(() => {
-    const listener = () => setTick((t) => t + 1);
-    listeners.add(listener);
-    
-    // Connect on first hook usage
-    if (!ws && !isConnecting && !connected) {
-      connect();
-    }
-
-    return () => {
-      listeners.delete(listener);
-    };
+  const stopMock = useCallback(() => {
+    if (mockSeedRef.current) { clearTimeout(mockSeedRef.current); mockSeedRef.current = null; }
+    if (mockStreamRef.current) { clearInterval(mockStreamRef.current); mockStreamRef.current = null; }
   }, []);
 
-  const sshAlerts = allAlerts.filter(a => a.source === 'SSH');
-  const uebaAlerts = allAlerts.filter(a => a.source === 'UEBA');
-  const networkAlerts = allAlerts.filter(a => a.source === 'Network');
+  const startMock = useCallback(() => {
+    // Seed after 1.2 s if still not connected to real backend
+    mockSeedRef.current = setTimeout(() => {
+      if (connectedRef.current) return;
+      setAllAlerts(MOCK_ALERTS.slice());
+
+      // Stream a new alert every 4 s while disconnected
+      mockStreamRef.current = setInterval(() => {
+        if (connectedRef.current) { stopMock(); return; }
+        setAllAlerts(prev => [generateStreamAlert(), ...prev].slice(0, MAX_ALERTS));
+      }, 4000);
+    }, 1200);
+  }, [stopMock]);
+
+  const connect = useCallback(() => {
+    if (wsRef.current?.readyState === WebSocket.OPEN) return;
+    try {
+      const ws = new WebSocket(WS_URL);
+      wsRef.current = ws;
+
+      ws.onopen = () => {
+        connectedRef.current = true;
+        setConnected(true);
+        stopMock();
+      };
+
+      ws.onmessage = ({ data }) => {
+        try {
+          const parsed = JSON.parse(data);
+          if (Array.isArray(parsed)) {
+            setAllAlerts(parsed.slice(0, MAX_ALERTS));
+          } else if (parsed?.id) {
+            setAllAlerts(prev => [parsed as Alert, ...prev].slice(0, MAX_ALERTS));
+          }
+        } catch { /* ignore malformed frames */ }
+      };
+
+      ws.onclose = () => {
+        connectedRef.current = false;
+        setConnected(false);
+        reconnectRef.current = setTimeout(connect, 3000);
+      };
+
+      ws.onerror = () => ws.close();
+    } catch {
+      reconnectRef.current = setTimeout(connect, 3000);
+    }
+  }, [stopMock]);
+
+  useEffect(() => {
+    startMock();
+    connect();
+    return () => {
+      stopMock();
+      if (reconnectRef.current) clearTimeout(reconnectRef.current);
+      wsRef.current?.close();
+    };
+  }, [connect, startMock, stopMock]);
 
   return {
     connected,
-    lastAlert,
     allAlerts,
-    sshAlerts,
-    uebaAlerts,
-    networkAlerts
+    sshAlerts: allAlerts.filter(a => a.source === 'SSH'),
+    uebaAlerts: allAlerts.filter(a => a.source === 'UEBA'),
+    networkAlerts: allAlerts.filter(a => a.source === 'Network'),
   };
 }

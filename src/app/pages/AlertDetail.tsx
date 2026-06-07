@@ -150,7 +150,7 @@ export function AlertDetail() {
     setError(null);
     setReport(null);
     analyzeAlert(id, alert?.source ?? '', alert as unknown as Record<string, unknown>)
-      .then(r => { setReport(r.report_markdown || r.report); setLoading(false); })
+      .then(r => { setReport(r.report); setLoading(false); })
       .catch(e => { setError(e.message); setLoading(false); });
   }, [id]); // eslint-disable-line react-hooks/exhaustive-deps
 

@@ -57,7 +57,7 @@ export async function controlSimulation(
   params: { delay?: number; scenario?: string } = {}
 ): Promise<void> {
   try {
-    const res = await fetch(`${BASE}/api/simulation/${type}/${action}`, {
+    const res = await fetch(`${BASE}/api/simulate/${type}/${action}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(params),

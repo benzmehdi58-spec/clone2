@@ -1,24 +1,13 @@
 import { useState, useRef, useEffect, type KeyboardEvent } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Sparkles, X, Send, Bot, User, Minimize2, Copy, Check, Paperclip, FileText, ShieldAlert, ShieldCheck } from 'lucide-react';
+import { Sparkles, X, Send, Bot, User, Minimize2, Copy, Check } from 'lucide-react';
 
 /* ─── Types ─── */
-interface Source {
-  filename: string;
-  doc_type: string;
-  similarity: number;
-  snippet: string;
-}
-
 interface Message {
   id: string;
   role: 'user' | 'assistant';
   content: string;
   timestamp: Date;
-  isStreaming?: boolean;
-  sources?: Source[];
-  followUpQuestions?: string[];
-  grounded?: boolean;
 }
 
 /* ─── Quick-action suggestion chips ─── */
@@ -30,8 +19,6 @@ const QUICK_ACTIONS = [
   'Explain ZERO_DAY signatures',
   'Show high-confidence alerts',
 ];
-
-const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
 
 /* ─── Markdown renderer (no external lib) ─── */
 
@@ -74,7 +61,7 @@ function CodeBlock({ code, lang }: { code: string; lang: string }) {
           {copied ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
         </button>
       </div>
-      <pre className="terminal-font text-[11px] text-[#A5D6FF] p-3 overflow-x-auto leading-relaxed whitespace-pre-wrap"
+      <pre className="terminal-font text-[11px] text-[#A5D6FF] p-3 overflow-x-auto leading-relaxed"
         style={{ background: 'rgba(9,12,16,0.6)', margin: 0 }}>
         {code.trimEnd()}
       </pre>
@@ -95,6 +82,7 @@ function MarkdownMessage({ content }: { content: string }) {
           return <CodeBlock key={si} code={code} lang={lang} />;
         }
 
+        // Process line by line
         const lines = seg.split('\n');
         const nodes: React.ReactNode[] = [];
         let listItems: string[] = [];
@@ -121,7 +109,10 @@ function MarkdownMessage({ content }: { content: string }) {
           }
           flushList(li);
 
-          if (!line.trim()) return;
+          if (!line.trim()) {
+            // skip blank lines (spacing handled by space-y)
+            return;
+          }
           if (line.startsWith('### ')) {
             nodes.push(<p key={`${si}-h3-${li}`} className="text-[#F0F6FC] font-semibold mt-2">{line.slice(4)}</p>);
           } else if (line.startsWith('## ')) {
@@ -155,18 +146,8 @@ function TypingIndicator() {
   );
 }
 
-const getDocTypeColor = (type: string) => {
-  switch (type) {
-    case "playbook": return "bg-blue-500/20 text-blue-400 border-blue-500/30";
-    case "threat_intel": return "bg-red-500/20 text-red-400 border-red-500/30";
-    case "policy": return "bg-yellow-500/20 text-yellow-400 border-yellow-500/30";
-    case "postmortem": return "bg-purple-500/20 text-purple-400 border-purple-500/30";
-    default: return "bg-slate-500/20 text-slate-400 border-slate-500/30";
-  }
-};
-
 /* ─── Message bubble ─── */
-function MessageBubble({ msg, onFollowUpClick }: { msg: Message, onFollowUpClick: (q: string) => void }) {
+function MessageBubble({ msg }: { msg: Message }) {
   const isUser = msg.role === 'user';
   return (
     <motion.div
@@ -190,154 +171,88 @@ function MessageBubble({ msg, onFollowUpClick }: { msg: Message, onFollowUpClick
       </div>
 
       {/* Bubble */}
-      <div className="max-w-[82%]">
-        <div
-          className="rounded-xl px-3.5 py-2.5"
-          style={isUser ? {
-            background: 'rgba(48,54,61,0.6)',
-            border: '1px solid rgba(48,54,61,0.8)',
-            color: '#F0F6FC',
-          } : {
-            background: 'rgba(227,0,15,0.06)',
-            border: msg.grounded === false ? '1px solid rgba(245,158,11,0.4)' : '1px solid rgba(227,0,15,0.15)',
-            color: '#D1D9E0',
-          }}
-        >
-          {!isUser && msg.grounded !== undefined && !msg.isStreaming && (
-             <div className="mb-2 flex items-center">
-                 <div
-                  className={`flex items-center gap-1 text-[9px] font-medium px-2 py-0.5 rounded-full ${
-                    msg.grounded
-                      ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20"
-                      : "bg-amber-500/10 text-amber-400 border border-amber-500/20"
-                  }`}
-                 >
-                   {msg.grounded ? <ShieldCheck className="w-3 h-3" /> : <ShieldAlert className="w-3 h-3" />}
-                   {msg.grounded ? "Grounded in KB" : "No exact match found"}
-                 </div>
-             </div>
-          )}
-
-          {isUser
-            ? <p className="text-sm leading-relaxed">{msg.content}</p>
-            : <MarkdownMessage content={msg.content} />
-          }
-          {msg.isStreaming && (
-            <span className="inline-block w-1.5 h-3.5 ml-1 align-middle bg-[#E3000F] animate-pulse opacity-80" />
-          )}
-          <p className="text-[#8B949E]/50 text-[9px] mt-1.5 terminal-font text-right">
-            {msg.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-          </p>
-        </div>
-
-        {/* Sources */}
-        {!isUser && msg.sources && msg.sources.length > 0 && !msg.isStreaming && (
-          <div className="mt-2 pl-1">
-            <p className="text-[10px] font-semibold text-[#8B949E] mb-1.5 uppercase tracking-widest">Sources</p>
-            <div className="space-y-1.5">
-              {msg.sources.map((src, idx) => (
-                <div key={idx} className="text-xs p-2 rounded-lg" style={{ background: 'rgba(13,17,23,0.6)', border: '1px solid rgba(48,54,61,0.5)' }}>
-                  <div className="flex items-center gap-2 mb-1 overflow-hidden">
-                    <FileText className="w-3 h-3 text-[#8B949E] shrink-0" />
-                    <span className="font-medium text-[#F0F6FC] truncate text-[11px]" title={src.filename}>
-                      {src.filename}
-                    </span>
-                    <span className={`px-1.5 py-0.5 rounded-full text-[9px] border ${getDocTypeColor(src.doc_type)} shrink-0`}>
-                      {src.doc_type}
-                    </span>
-                  </div>
-                  <p className="text-[#8B949E] text-[10px] line-clamp-2 italic">"{src.snippet}"</p>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* Follow-up Questions */}
-        {!isUser && msg.followUpQuestions && msg.followUpQuestions.length > 0 && !msg.isStreaming && (
-          <div className="mt-2 pl-1 flex flex-wrap gap-1.5">
-            {msg.followUpQuestions.map((q, idx) => (
-              <button
-                key={idx}
-                onClick={() => onFollowUpClick(q)}
-                className="text-[10px] bg-transparent hover:bg-white/5 transition-colors rounded-full px-2.5 py-1 text-[#8B949E] hover:text-[#F0F6FC]"
-                style={{ border: '1px solid rgba(48,54,61,0.8)' }}
-              >
-                {q}
-              </button>
-            ))}
-          </div>
-        )}
+      <div
+        className="max-w-[82%] rounded-xl px-3.5 py-2.5"
+        style={isUser ? {
+          background: 'rgba(48,54,61,0.6)',
+          border: '1px solid rgba(48,54,61,0.8)',
+          color: '#F0F6FC',
+        } : {
+          background: 'rgba(227,0,15,0.06)',
+          border: '1px solid rgba(227,0,15,0.15)',
+          color: '#D1D9E0',
+        }}
+      >
+        {isUser
+          ? <p className="text-sm leading-relaxed">{msg.content}</p>
+          : <MarkdownMessage content={msg.content} />
+        }
+        <p className="text-[#8B949E]/50 text-[9px] mt-1.5 terminal-font">
+          {msg.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+        </p>
       </div>
     </motion.div>
   );
 }
 
+/* ─── Welcome message ─── */
+const WELCOME: Message = {
+  id: 'welcome',
+  role: 'assistant',
+  content: `## CyberAI SOC Assistant ready.
+
+I'm your AI-powered analyst for **network intrusion detection** and **insider threat intelligence**.
+
+I can help you:
+- Summarize and correlate active alerts
+- Explain **MITRE ATT&CK** techniques
+- Investigate specific sessions or anomalies
+- Generate \`incident reports\` in seconds
+
+*Select a quick action below or type your question.*`,
+  timestamp: new Date(),
+};
+
+/* ─── Placeholder response when backend not yet wired ─── */
+function buildPlaceholder(query: string): Message {
+  return {
+    id: `ai-${Date.now()}`,
+    role: 'assistant',
+    content: `## Backend endpoint not yet connected
+
+Your question **"${query}"** has been received. To enable live AI responses, wire this interface to your LangChain endpoint:
+
+\`\`\`ts
+POST /api/chat/message
+{ "message": "${query}", "session_id": "<uuid>" }
+\`\`\`
+
+Expected response shape:
+\`\`\`json
+{ "reply": "markdown string", "sources": [] }
+\`\`\`
+
+Once connected, responses will stream back with full **incident context**, MITRE mappings, and recommended actions.`,
+    timestamp: new Date(),
+  };
+}
+
 /* ─── Main ChatBot component ─── */
 export function ChatBot() {
   const [open, setOpen] = useState(false);
-  const [messages, setMessages] = useState<Message[]>([]);
+  const [messages, setMessages] = useState<Message[]>([WELCOME]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [hasUnread, setHasUnread] = useState(false);
-  
-  const [uploadStatus, setUploadStatus] = useState("");
-  const [isUploading, setIsUploading] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
-
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
-  const sessionId = "default-session"; // Unique session ID for conversation history
-
-  // Fetch History on mount
-  useEffect(() => {
-    fetchHistory();
-  }, []);
-
-  const fetchHistory = async () => {
-    try {
-      const res = await fetch(`${API_URL}/api/analyst/history`);
-      if (res.ok) {
-        const data = await res.json();
-        const loadedMessages: Message[] = [];
-        [...data].reverse().forEach((item: any) => {
-          loadedMessages.push({
-            id: `user-${item.id}`,
-            role: "user",
-            content: item.question,
-            timestamp: new Date()
-          });
-          loadedMessages.push({
-            id: `assistant-${item.id}`,
-            role: "assistant",
-            content: item.answer,
-            sources: item.sources,
-            grounded: item.grounded,
-            followUpQuestions: [],
-            timestamp: new Date()
-          });
-        });
-        
-        if (loadedMessages.length === 0) {
-           loadedMessages.push({
-              id: 'welcome',
-              role: 'assistant',
-              content: `## CyberAI SOC Assistant ready.\n\nI'm your AI-powered analyst for **network intrusion detection** and **insider threat intelligence**.\n\nI can help you:\n- Summarize and correlate active alerts\n- Explain **MITRE ATT&CK** techniques\n- Investigate specific sessions or anomalies\n- Answer questions based on documents you upload\n\n*Select a quick action below, or click the Paperclip to upload threat intel PDFs.*`,
-              timestamp: new Date(),
-           });
-        }
-        setMessages(loadedMessages);
-      }
-    } catch (e) {
-      console.error("Failed to fetch history", e);
-    }
-  };
-
+  // Scroll to bottom when messages change
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, loading]);
 
+  // Focus input when panel opens
   useEffect(() => {
     if (open) {
       setHasUnread(false);
@@ -345,38 +260,7 @@ export function ChatBot() {
     }
   }, [open]);
 
-  const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    setIsUploading(true);
-    setUploadStatus("Uploading...");
-
-    const formData = new FormData();
-    formData.append("file", file);
-    formData.append("doc_type", "threat_intel"); // default doc type
-
-    try {
-      const res = await fetch(`${API_URL}/api/analyst/upload`, {
-        method: "POST",
-        body: formData,
-      });
-      const data = await res.json();
-      if (res.ok) {
-        setUploadStatus(`✓ ${data.filename} ingested`);
-      } else {
-        setUploadStatus(`✗ Error: ${data.detail || "Upload failed"}`);
-      }
-    } catch (err) {
-      setUploadStatus("✗ Network Error");
-    } finally {
-      setIsUploading(false);
-      if (fileInputRef.current) fileInputRef.current.value = "";
-      setTimeout(() => setUploadStatus(""), 5000);
-    }
-  };
-
-  const send = async (text: string) => {
+  const send = (text: string) => {
     const trimmed = text.trim();
     if (!trimmed || loading) return;
 
@@ -391,59 +275,13 @@ export function ChatBot() {
     setInput('');
     setLoading(true);
 
-    const assistantMsgId = `ai-${Date.now()}`;
-    setMessages(prev => [...prev, {
-      id: assistantMsgId,
-      role: "assistant",
-      content: "",
-      isStreaming: true,
-      timestamp: new Date()
-    }]);
-
-    try {
-      const url = new URL(`${API_URL}/api/analyst/chat/stream`);
-      url.searchParams.append("question", trimmed);
-      url.searchParams.append("session_id", sessionId);
-      
-      const eventSource = new EventSource(url.toString());
-      
-      let currentContent = "";
-      
-      eventSource.onmessage = (e) => {
-        const data = JSON.parse(e.data);
-        
-        if (data.type === "token") {
-          currentContent += data.content;
-          setMessages(prev => prev.map(m => m.id === assistantMsgId ? { ...m, content: currentContent } : m));
-        }
-        
-        if (data.type === "sources") {
-          setMessages(prev => prev.map(m => m.id === assistantMsgId ? {
-            ...m,
-            sources: data.sources,
-            followUpQuestions: data.follow_up_questions,
-            grounded: data.sources.length > 0 || data.follow_up_questions.length > 0 ? true : false
-          } : m));
-        }
-        
-        if (data.type === "done") {
-          eventSource.close();
-          setLoading(false);
-          setMessages(prev => prev.map(m => m.id === assistantMsgId ? { ...m, isStreaming: false } : m));
-          if (!open) setHasUnread(true);
-        }
-      };
-      
-      eventSource.onerror = () => {
-        eventSource.close();
-        setLoading(false);
-        setMessages(prev => prev.map(m => m.id === assistantMsgId ? { ...m, content: currentContent || "An error occurred.", isStreaming: false } : m));
-      };
-    } catch (e) {
-      console.error(e);
+    // Simulate latency then show backend-not-wired placeholder
+    setTimeout(() => {
+      const aiMsg = buildPlaceholder(trimmed);
+      setMessages(prev => [...prev, aiMsg]);
       setLoading(false);
-      setMessages(prev => prev.map(m => m.id === assistantMsgId ? { ...m, content: "An error occurred.", isStreaming: false } : m));
-    }
+      if (!open) setHasUnread(true);
+    }, 900 + Math.random() * 600);
   };
 
   const handleKey = (e: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -455,6 +293,7 @@ export function ChatBot() {
 
   return (
     <>
+      {/* ── Chat Panel ── */}
       <AnimatePresence>
         {open && (
           <motion.div
@@ -464,8 +303,8 @@ export function ChatBot() {
             transition={{ duration: 0.22, ease: 'easeOut' }}
             className="fixed bottom-24 right-6 z-40 flex flex-col rounded-2xl overflow-hidden"
             style={{
-              width: 420,
-              height: 600,
+              width: 390,
+              height: 560,
               background: 'rgba(18,22,29,0.92)',
               backdropFilter: 'blur(20px)',
               WebkitBackdropFilter: 'blur(20px)',
@@ -486,13 +325,13 @@ export function ChatBot() {
               </div>
               <div className="flex-1 min-w-0">
                 <p className="text-[#F0F6FC] font-semibold text-sm leading-none">CyberAI Assistant</p>
-                <p className="text-[#8B949E] text-[10px] mt-0.5">RAG Intelligence Engine</p>
+                <p className="text-[#8B949E] text-[10px] mt-0.5">SOC Intelligence Agent</p>
               </div>
               <div className="flex items-center gap-1">
                 <span className="flex items-center gap-1.5 px-2 py-1 rounded-full text-[10px] text-emerald-400"
                   style={{ background: 'rgba(52,211,153,0.08)', border: '1px solid rgba(52,211,153,0.2)' }}>
                   <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse-green" />
-                  Online
+                  Ready
                 </span>
                 <button
                   onClick={() => setOpen(false)}
@@ -505,9 +344,9 @@ export function ChatBot() {
 
             {/* Messages */}
             <div className="flex-1 overflow-y-auto px-4 py-3 space-y-4">
-              {messages.map(msg => <MessageBubble key={msg.id} msg={msg} onFollowUpClick={send} />)}
+              {messages.map(msg => <MessageBubble key={msg.id} msg={msg} />)}
 
-              {loading && !messages.find(m => m.isStreaming) && (
+              {loading && (
                 <div className="flex gap-2.5">
                   <div className="w-7 h-7 rounded-full shrink-0 flex items-center justify-center mt-0.5"
                     style={{ background: 'rgba(227,0,15,0.12)', border: '1px solid rgba(227,0,15,0.25)' }}>
@@ -555,7 +394,7 @@ export function ChatBot() {
             {/* Input bar */}
             <div className="px-3 pb-3 shrink-0">
               <div
-                className="flex items-end gap-2 rounded-xl px-2 py-2 transition-all duration-200"
+                className="flex items-end gap-2 rounded-xl px-3 py-2.5 transition-all duration-200"
                 style={{ background: 'rgba(13,17,23,0.7)', border: '1px solid rgba(48,54,61,0.8)' }}
                 onFocusCapture={e => {
                   (e.currentTarget as HTMLDivElement).style.borderColor = 'rgba(227,0,15,0.35)';
@@ -564,49 +403,26 @@ export function ChatBot() {
                   (e.currentTarget as HTMLDivElement).style.borderColor = 'rgba(48,54,61,0.8)';
                 }}
               >
-                {/* Upload Button */}
-                <button
-                  onClick={() => fileInputRef.current?.click()}
-                  disabled={isUploading || loading}
-                  className="p-2 text-[#8B949E] hover:text-[#F0F6FC] transition-colors disabled:opacity-50 relative"
-                  title="Upload Document to Knowledge Base"
-                >
-                  <Paperclip className="w-4 h-4" />
-                  {uploadStatus && (
-                    <span className="absolute -top-6 left-0 text-[9px] whitespace-nowrap text-emerald-400 font-mono bg-black/80 px-2 py-0.5 rounded">
-                      {uploadStatus}
-                    </span>
-                  )}
-                </button>
-                <input
-                  type="file"
-                  ref={fileInputRef}
-                  onChange={handleUpload}
-                  accept=".pdf,.txt,.md"
-                  className="hidden"
-                />
-
                 <textarea
                   ref={inputRef}
                   value={input}
                   onChange={e => setInput(e.target.value)}
                   onKeyDown={handleKey}
-                  placeholder="Ask about threats, alerts, or uploaded docs…"
+                  placeholder="Ask about threats, alerts, or incidents…"
                   rows={1}
                   disabled={loading}
-                  className="flex-1 bg-transparent text-[#F0F6FC] text-[13px] placeholder-[#8B949E]/60 outline-none resize-none leading-relaxed disabled:opacity-50 mt-1"
-                  style={{ maxHeight: 80, minHeight: 24 }}
+                  className="flex-1 bg-transparent text-[#F0F6FC] text-sm placeholder-[#8B949E]/60 outline-none resize-none leading-relaxed disabled:opacity-50"
+                  style={{ maxHeight: 80, minHeight: 20 }}
                   onInput={e => {
                     const t = e.currentTarget;
                     t.style.height = 'auto';
                     t.style.height = `${Math.min(t.scrollHeight, 80)}px`;
                   }}
                 />
-                
                 <button
                   onClick={() => send(input)}
                   disabled={!input.trim() || loading}
-                  className="p-1.5 rounded-lg shrink-0 transition-all duration-200 disabled:opacity-30 mb-0.5 mr-0.5"
+                  className="p-1.5 rounded-lg shrink-0 transition-all duration-200 disabled:opacity-30"
                   style={{ background: 'rgba(227,0,15,0.85)' }}
                   onMouseEnter={e => {
                     if (!loading && input.trim()) {
@@ -621,7 +437,7 @@ export function ChatBot() {
                 </button>
               </div>
               <p className="text-[#8B949E]/40 text-[9px] text-center mt-1.5">
-                AI can make mistakes. Verify critical actions.
+                Enter to send · Shift+Enter for new line
               </p>
             </div>
           </motion.div>

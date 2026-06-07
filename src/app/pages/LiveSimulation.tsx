@@ -6,7 +6,7 @@ import { Switch } from '@/app/components/ui/switch';
 import { Slider } from '@/app/components/ui/slider';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/app/components/ui/select';
 import { useWebSocketData } from '../contexts/WebSocketContext';
-import { SimulationApi } from '../api/simulationApi';
+import { controlSimulation } from '../api/agent';
 import { MetricCard } from '../components/MetricCard';
 import { NetworkCanvas } from '../components/NetworkCanvas';
 import type { Alert } from '../types';
@@ -157,13 +157,10 @@ export function LiveSimulation() {
   ) {
     setter(p => ({ ...p, loading: true }));
     try {
-      if (type === 'ssh') {
-        next ? await SimulationApi.startSshReplay(delay / 1000) : await SimulationApi.stopSshReplay();
-      } else if (type === 'ueba') {
-        next ? await SimulationApi.startUebaReplay(delay / 1000) : await SimulationApi.stopUebaReplay();
-      } else if (type === 'network') {
-        next ? await SimulationApi.startNetwork(scenario, 1000 / delay) : await SimulationApi.stopNetwork();
-      }
+      await controlSimulation(type, next ? 'start' : 'stop', {
+        delay,
+        scenario: type === 'network' ? scenario : undefined,
+      });
       setter(p => ({ ...p, active: next, loading: false }));
       toast.success(`${type.toUpperCase()} replay ${next ? 'started' : 'stopped'}`);
     } catch (e) {

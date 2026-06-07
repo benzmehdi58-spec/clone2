@@ -8,35 +8,77 @@ import {
 import { Brain, Target, TrendingUp, Activity, Clock, Database, Zap, Cpu } from 'lucide-react';
 import { MetricCard } from '../components/MetricCard';
 
-/* ─── Fetch data from backend ─── */
-import { useEffect } from 'react';
-
+/* ─── Static mock data hook ─── */
 function useModelStats(model: string) {
-  const [data, setData] = useState<any>(null);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    let endpoint = '/api/model/auth';
-    if (model === 'ueba') endpoint = '/api/model/ueba';
-    if (model === 'network') endpoint = '/api/model/network';
-
-    fetch(endpoint)
-      .then(res => res.json())
-      .then(json => {
-        setData(json);
-        setLoading(false);
-      })
-      .catch(err => {
-        console.error("Failed to load model stats", err);
-        setLoading(false);
-      });
-  }, [model]);
-
-  if (loading) {
-    return { name: "Loading...", architecture: "...", accuracy: 0, precision: 0, recall: 0, f1: 0, lastTrained: "...", datasetSize: "...", latency: "...", epochs: 0, lossHistory: [], confusion: {tp: 0, fp: 0, tn: 0, fn: 0}, features: [] };
-  }
-
-  return data;
+  const models = {
+    ssh: {
+      name: 'SSH Bi-LSTM',
+      architecture: 'Bi-Directional LSTM with Attention',
+      accuracy: 99.4, precision: 98.2, recall: 99.1, f1: 98.6,
+      lastTrained: '2 hours ago',
+      datasetSize: '1.2M rows',
+      latency: '12ms',
+      epochs: 140,
+      lossHistory: [
+        { epoch: 20, loss: 0.48 }, { epoch: 40, loss: 0.31 }, { epoch: 60, loss: 0.19 },
+        { epoch: 80, loss: 0.12 }, { epoch: 100, loss: 0.08 }, { epoch: 120, loss: 0.05 },
+        { epoch: 140, loss: 0.03 },
+      ],
+      confusion: { tp: 9847, fp: 112, tn: 87341, fn: 89 },
+      features: [
+        { name: 'Login Attempts', importance: 94 },
+        { name: 'Inter-Packet Gap', importance: 81 },
+        { name: 'Time of Day', importance: 73 },
+        { name: 'Session Duration', importance: 66 },
+        { name: 'Geo Distance', importance: 58 },
+      ],
+    },
+    ueba: {
+      name: 'UEBA Ensemble',
+      architecture: 'Random Forest + Isolation Forest Ensemble',
+      accuracy: 97.8, precision: 96.5, recall: 98.3, f1: 97.4,
+      lastTrained: '5 hours ago',
+      datasetSize: '840K rows',
+      latency: '8ms',
+      epochs: 200,
+      lossHistory: [
+        { epoch: 20, loss: 0.55 }, { epoch: 40, loss: 0.38 }, { epoch: 60, loss: 0.25 },
+        { epoch: 80, loss: 0.17 }, { epoch: 100, loss: 0.11 }, { epoch: 140, loss: 0.07 },
+        { epoch: 200, loss: 0.04 },
+      ],
+      confusion: { tp: 7234, fp: 198, tn: 65421, fn: 124 },
+      features: [
+        { name: 'Access Frequency', importance: 91 },
+        { name: 'Data Volume', importance: 85 },
+        { name: 'Privilege Level', importance: 79 },
+        { name: 'Off-Hours Activity', importance: 71 },
+        { name: 'Geo Anomaly', importance: 63 },
+      ],
+    },
+    network: {
+      name: 'Network XGBoost',
+      architecture: 'XGBoost with SHAP Explanations',
+      accuracy: 98.9, precision: 97.7, recall: 99.3, f1: 98.5,
+      lastTrained: '1 hour ago',
+      datasetSize: '2.1M rows',
+      latency: '4ms',
+      epochs: 350,
+      lossHistory: [
+        { epoch: 50,  loss: 0.42 }, { epoch: 100, loss: 0.28 }, { epoch: 150, loss: 0.18 },
+        { epoch: 200, loss: 0.12 }, { epoch: 250, loss: 0.08 }, { epoch: 300, loss: 0.05 },
+        { epoch: 350, loss: 0.03 },
+      ],
+      confusion: { tp: 18234, fp: 287, tn: 142891, fn: 134 },
+      features: [
+        { name: 'Packet Size', importance: 96 },
+        { name: 'Protocol Type', importance: 88 },
+        { name: 'Flow Duration', importance: 76 },
+        { name: 'Bytes / Second', importance: 69 },
+        { name: 'Dst Port', importance: 61 },
+      ],
+    },
+  };
+  return models[model as keyof typeof models] ?? models.ssh;
 }
 
 /* ─── Sub-components ─── */
