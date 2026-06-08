@@ -79,10 +79,10 @@ export function Login() {
           >
             <Shield className="w-8 h-8 text-[#E3000F]" style={{ filter: 'drop-shadow(0 0 10px rgba(227,0,15,0.8))' }} />
           </div>
-          <h1 className="text-[#F0F6FC] text-2xl font-bold tracking-tight">
+          <h1 className="text-foreground text-2xl font-bold tracking-tight">
             Cyber<span className="text-[#E3000F]">AI</span>
           </h1>
-          <p className="text-[#8B949E] text-sm mt-1">Security Operations Platform</p>
+          <p className="text-muted-foreground text-sm mt-1">Security Operations Platform</p>
         </motion.div>
 
         {/* Card */}
@@ -95,22 +95,22 @@ export function Login() {
         >
           {!mfa ? (
             <>
-              <h2 className="text-[#F0F6FC] font-semibold text-lg mb-1">Sign in</h2>
-              <p className="text-[#8B949E] text-sm mb-6">Access your command center</p>
+              <h2 className="text-foreground font-semibold text-lg mb-1">Sign in</h2>
+              <p className="text-muted-foreground text-sm mb-6">Access your command center</p>
 
               <form onSubmit={handleSubmit} className="space-y-4">
                 {/* Username */}
                 <div>
-                  <label className="block text-xs text-[#8B949E] mb-1.5">Username</label>
+                  <label className="block text-xs text-muted-foreground mb-1.5">Username</label>
                   <div className="relative">
-                    <User className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#8B949E]" />
+                    <User className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
                     <input
                       type="text"
                       value={username}
                       onChange={e => setUsername(e.target.value)}
                       placeholder="admin"
                       autoComplete="username"
-                      className="w-full pl-9 pr-4 py-2.5 rounded-lg text-sm text-[#F0F6FC] outline-none transition-all duration-200"
+                      className="w-full pl-9 pr-4 py-2.5 rounded-lg text-sm text-foreground outline-none transition-all duration-200"
                       style={{
                         background: 'rgba(13,17,23,0.8)',
                         border: '1px solid rgba(48,54,61,0.9)',
@@ -123,16 +123,16 @@ export function Login() {
 
                 {/* Password */}
                 <div>
-                  <label className="block text-xs text-[#8B949E] mb-1.5">Password</label>
+                  <label className="block text-xs text-muted-foreground mb-1.5">Password</label>
                   <div className="relative">
-                    <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#8B949E]" />
+                    <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
                     <input
                       type={showPass ? 'text' : 'password'}
                       value={password}
                       onChange={e => setPassword(e.target.value)}
                       placeholder="••••••••"
                       autoComplete="current-password"
-                      className="w-full pl-9 pr-10 py-2.5 rounded-lg text-sm text-[#F0F6FC] outline-none transition-all duration-200"
+                      className="w-full pl-9 pr-10 py-2.5 rounded-lg text-sm text-foreground outline-none transition-all duration-200"
                       style={{
                         background: 'rgba(13,17,23,0.8)',
                         border: '1px solid rgba(48,54,61,0.9)',
@@ -143,7 +143,7 @@ export function Login() {
                     <button
                       type="button"
                       onClick={() => setShowPass(v => !v)}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 text-[#8B949E] hover:text-[#F0F6FC] transition-colors"
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
                     >
                       {showPass ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                     </button>
@@ -184,8 +184,8 @@ export function Login() {
               </form>
 
               <div className="mt-6 pt-5" style={{ borderTop: '1px solid rgba(48,54,61,0.6)' }}>
-                <p className="text-[#8B949E] text-xs text-center">
-                  Demo credentials: <span className="text-[#F0F6FC] font-mono">admin</span> / <span className="text-[#F0F6FC] font-mono">cyberai</span>
+                <p className="text-muted-foreground text-xs text-center">
+                  Demo credentials: <span className="text-foreground font-mono">admin</span> / <span className="text-foreground font-mono">cyberai</span>
                 </p>
               </div>
             </>
@@ -197,21 +197,21 @@ export function Login() {
                   <Shield className="w-5 h-5 text-[#4DABF7]" />
                 </div>
                 <div>
-                  <h2 className="text-[#F0F6FC] font-semibold text-base">Two-Factor Authentication</h2>
-                  <p className="text-[#8B949E] text-xs mt-0.5">Enter the 6-digit code from your authenticator</p>
+                  <h2 className="text-foreground font-semibold text-base">Two-Factor Authentication</h2>
+                  <p className="text-muted-foreground text-xs mt-0.5">Enter the 6-digit code from your authenticator</p>
                 </div>
               </div>
 
               <form onSubmit={handleMfa} className="space-y-4">
                 <div>
-                  <label className="block text-xs text-[#8B949E] mb-1.5">Authentication Code</label>
+                  <label className="block text-xs text-muted-foreground mb-1.5">Authentication Code</label>
                   <input
                     type="text"
                     value={mfaCode}
                     onChange={e => setMfaCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
                     placeholder="000000"
                     maxLength={6}
-                    className="w-full px-4 py-3 rounded-lg text-center text-xl font-mono tracking-[0.5em] text-[#F0F6FC] outline-none transition-all duration-200"
+                    className="w-full px-4 py-3 rounded-lg text-center text-xl font-mono tracking-[0.5em] text-foreground outline-none transition-all duration-200"
                     style={{
                       background: 'rgba(13,17,23,0.8)',
                       border: '1px solid rgba(48,54,61,0.9)',
@@ -256,13 +256,13 @@ export function Login() {
                 <button
                   type="button"
                   onClick={() => { setMfa(false); setError(''); setMfaCode(''); }}
-                  className="w-full py-2 text-xs text-[#8B949E] hover:text-[#F0F6FC] transition-colors"
+                  className="w-full py-2 text-xs text-muted-foreground hover:text-foreground transition-colors"
                 >
                   ← Back to sign in
                 </button>
               </form>
 
-              <p className="text-[#8B949E] text-xs text-center mt-4">
+              <p className="text-muted-foreground text-xs text-center mt-4">
                 Demo: any 6-digit code will work
               </p>
             </>
@@ -276,8 +276,8 @@ export function Login() {
           transition={{ duration: 0.5, delay: 0.3 }}
           className="flex items-center justify-center gap-2 mt-6"
         >
-          <Wifi className="w-3.5 h-3.5 text-[#8B949E]" />
-          <span className="text-[#8B949E] text-xs">End-to-end encrypted · SOC 2 Type II certified</span>
+          <Wifi className="w-3.5 h-3.5 text-muted-foreground" />
+          <span className="text-muted-foreground text-xs">End-to-end encrypted · SOC 2 Type II certified</span>
         </motion.div>
       </div>
     </div>

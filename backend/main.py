@@ -20,30 +20,10 @@ from typing import Optional
 from contextlib import asynccontextmanager
 from collections import defaultdict
 
-try:
-    import tensorflow as tf
-    from tensorflow.keras.models import load_model
-    from tensorflow.keras.preprocessing.sequence import pad_sequences
-except ImportError:
-    tf = None
-    def load_model(*args, **kwargs):
-        class MockModel:
-            def predict(self, X, **kwargs):
-                return np.random.rand(len(X), 1)
-        
-        m = MockModel()
-        m.is_mock = True
-        return m
-    def pad_sequences(seqs, maxlen, padding, truncating):
-        # Basic numpy padding
-        res = np.zeros((len(seqs), maxlen), dtype=int)
-        for i, s in enumerate(seqs):
-            arr = np.array(s)[:maxlen]
-            if padding == 'post':
-                res[i, :len(arr)] = arr
-            else:
-                res[i, -len(arr):] = arr
-        return res
+os.environ["TF_ENABLE_ONEDNN_OPTS"] = "0"
+import tensorflow as tf
+from tensorflow.keras.models import load_model
+from tensorflow.keras.preprocessing.sequence import pad_sequences
 # Network pipeline (imported lazily to avoid torch startup noise before TF)
 try:
     from network_pipeline import ThreeStagePipeline
@@ -130,9 +110,15 @@ state: dict = {
     "net_simulator":  None,
     "ssh_simulator": None,
     "ueba_simulator": None,
+    "hdfs_simulator": None,
     "net_stop_event":  None,
     "ssh_stop_event": None,
     "ueba_stop_event": None,
+    "hdfs_stop_event": None,
+    # ─ System (HDFS) ──────────────────────────────────────────────
+    "hdfs_pipeline": None,
+    "hdfs_logs":     [],
+    "hdfs_metrics":  {},
     # ─ Model A: SSH Auth Log Detector ─────────────────────────────
     "ssh_model":     None,   # Keras CNN-BiLSTM (optional — for live inference)
     "ssh_vocab":     None,   # {template_str: int_index}
@@ -160,7 +146,24 @@ async def lifespan(app: FastAPI):
     print("INFO: Loading heavy machine learning models... This may take 15-30 seconds!")
     print("INFO: Please do not press Ctrl+C, the server is NOT frozen.")
     print("=========================================================================")
-    print("[*] HDFS model has been removed. Proceeding with Network, SSH, and UEBA.")
+    print("[*] Loading HDFS model alongside Network, SSH, and UEBA.")
+
+    # ─── HDFS Pipeline ────────────────────────────────────────────────────────
+    try:
+        from hdfs_pipeline import HDFSPipeline
+        hdfs_pipeline = HDFSPipeline(str(MODEL_PATH), str(VOCAB_PATH))
+        state["hdfs_pipeline"] = hdfs_pipeline
+        hdfs_logs, hdfs_metrics = hdfs_pipeline.run_batch_inference(str(SAMPLES_PATH), str(LABELS_PATH))
+        for _r in hdfs_logs:
+            if _r.get("verdict") == "ATTACK":
+                database.save_alert(_r)
+                state["alert_buffer"].append(_r)
+        state["hdfs_logs"] = hdfs_logs
+        state["hdfs_metrics"] = hdfs_metrics
+        state["logs"].extend(hdfs_logs)
+        print("[OK] HDFS Pipeline loaded successfully.")
+    except Exception as e:
+        print(f"[HDFS] ERROR loading HDFS pipeline: {e}")
 
     # ─── Network pipeline ────────────────────────────────────────────────────
     if _NET_PIPELINE_AVAILABLE:
@@ -212,13 +215,15 @@ async def lifespan(app: FastAPI):
         print(f"[RAGAnalyzer] Not available: {e}")
 
     try:
-        from simulators import NetworkScenarioSimulator, SSHReplayEngine, UEBAReplayEngine
+        from simulators import NetworkScenarioSimulator, SSHReplayEngine, UEBAReplayEngine, HDFSReplayEngine
         state["net_simulator"] = NetworkScenarioSimulator()
         state["ssh_simulator"] = SSHReplayEngine(str(BASE_DIR / "data" / "ssh_inference_samples.txt"))
         state["ueba_simulator"] = UEBAReplayEngine(str(BASE_DIR / "data" / "ueba_inference_results.json"))
+        state["hdfs_simulator"] = HDFSReplayEngine(state.get("hdfs_logs", []))
         state["net_stop_event"] = asyncio.Event()
         state["ssh_stop_event"] = asyncio.Event()
         state["ueba_stop_event"] = asyncio.Event()
+        state["hdfs_stop_event"] = asyncio.Event()
     except Exception as e:
         print(f"[Simulators] Not available: {e}")
 
@@ -389,6 +394,25 @@ async def lifespan(app: FastAPI):
 
             asyncio.ensure_future(ueba_sim.start(_ueba_cb, ueba_evt))
             print("[AutoSim] UEBA replay started automatically")
+
+        # ── HDFS ─────────────────────────────────────────────────────────────
+        hdfs_sim = state.get("hdfs_simulator")
+        hdfs_evt = state.get("hdfs_stop_event")
+        if hdfs_sim and hdfs_evt and not hdfs_sim.active:
+            async def _hdfs_cb(alert):
+                import time as _t
+                alert = dict(alert)
+                state["hdfs_logs"].append(alert)
+                state["hdfs_logs"] = state["hdfs_logs"][-500:]
+                state["logs"].append(alert)
+                await manager.broadcast(alert)
+                
+                if alert.get("verdict") == "ATTACK":
+                    database.save_alert(alert)
+                    state["alert_buffer"].append(alert)
+
+            asyncio.ensure_future(hdfs_sim.start(_hdfs_cb, hdfs_evt))
+            print("[AutoSim] HDFS replay started automatically")
 
         # ── Network ──────────────────────────────────────────────────────────
         net_sim = state.get("net_simulator")
@@ -1413,12 +1437,61 @@ async def get_all_sim_status():
     net_sim = state.get("net_simulator")
     ssh_sim = state.get("ssh_simulator")
     ueba_sim = state.get("ueba_simulator")
+    hdfs_sim = state.get("hdfs_simulator")
     
     return {
         "network": await net_sim.get_status() if net_sim else {"active": False},
         "ssh": await ssh_sim.get_status() if ssh_sim else {"active": False},
-        "ueba": await ueba_sim.get_status() if ueba_sim else {"active": False}
+        "ueba": await ueba_sim.get_status() if ueba_sim else {"active": False},
+        "hdfs": await hdfs_sim.get_status() if hdfs_sim else {"active": False}
     }
+
+class HdfsSimRequest(BaseModel):
+    delay_seconds: float = 3.0
+
+@app.post("/api/simulate/hdfs/start")
+async def start_hdfs_sim(req: HdfsSimRequest, background_tasks: BackgroundTasks, request: Request):
+    sim = state.get("hdfs_simulator")
+    if not sim:
+        raise HTTPException(status_code=503, detail="HDFS Simulator not available")
+        
+    if sim.active:
+        return {"status": "already running"}
+        
+    sim.delay_seconds = req.delay_seconds
+    state["hdfs_stop_event"].clear()
+    
+    async def hdfs_callback(alert: dict):
+        import time as _time
+        alert = dict(alert)
+        state["hdfs_logs"].append(alert)
+        state["hdfs_logs"] = state["hdfs_logs"][-500:]
+        state["logs"].append(alert)
+        asyncio.create_task(manager.broadcast(alert))
+
+        is_threat = alert.get("verdict") == "ATTACK"
+        if is_threat:
+            database.save_alert(alert)
+            state["alert_buffer"].append(alert)
+            from agent_router import run_agent
+            background_tasks.add_task(run_agent, trigger_payload=alert, app_state=request.app.state)
+
+    background_tasks.add_task(sim.start, hdfs_callback, state["hdfs_stop_event"])
+    return {"status": "started"}
+
+@app.post("/api/simulate/hdfs/stop")
+async def stop_hdfs_sim():
+    if state.get("hdfs_stop_event"):
+        state["hdfs_stop_event"].set()
+    return {"status": "stopped"}
+
+@app.get("/api/simulate/hdfs/status")
+async def hdfs_sim_status():
+    sim = state.get("hdfs_simulator")
+    if sim:
+        return await sim.get_status()
+    return {"active": False}
+
 
 
 
@@ -1473,6 +1546,32 @@ def get_network_model_metrics():
         "totalFlows"      : total_flows,
         "s1Threshold"     : m["s1_threshold"],
         "sparkline"       : sparkline,
+    }
+
+# ─── Model System (HDFS) metrics endpoint ──────────────────────────────────
+@app.get("/api/model/system")
+def get_system_model_metrics():
+    """Return pre-computed metrics from the HDFS batch inference."""
+    m = state.get("hdfs_metrics")
+    if not m:
+        m = {"accuracy": 0, "TP": 0, "TN": 0, "FP": 0, "FN": 0, "total": 0, "precision": 0, "recall": 0, "f1": 0, "auc": 0}
+
+    logs = state.get("hdfs_logs", [])
+    anomalies = sum(1 for l in logs if l.get("verdict") == "ATTACK")
+
+    return {
+        "metrics": [
+            {"label": "Precision", "val": f"{m.get('precision', 0):.1f}%", "up": True},
+            {"label": "Recall",    "val": f"{m.get('recall', 0):.1f}%",    "up": True},
+            {"label": "F1-Score",  "val": f"{m.get('f1', 0):.1f}%",       "up": True},
+        ],
+        "confusionMatrix" : {"TP": m.get("TP", 0), "TN": m.get("TN", 0), "FP": m.get("FP", 0), "FN": m.get("FN", 0)},
+        "auc"             : m.get("auc", 0),
+        "rocData"         : m.get("roc_data", []),
+        "driftData"       : m.get("drift_data", []),
+        "modelLoaded"     : state.get("hdfs_pipeline") is not None,
+        "totalBlocks"     : m.get("total", 0),
+        "anomalies"       : anomalies
     }
 
 try:

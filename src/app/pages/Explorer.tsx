@@ -1,418 +1,288 @@
-import { useState, useEffect, useCallback, useRef } from "react";
-import {
-  Search, Filter, Server, ShieldCheck, ShieldAlert, Network,
-  X, FileJson, Play, Loader2, ChevronLeft, ChevronRight,
-} from "lucide-react";
-import { Button } from "../components/ui/Button";
-import { Badge } from "../components/ui/Badge";
-import { Card } from "../components/ui/Card";
-import { cn } from "../utils/cn";
-import { fetchLogs, submitLogForAnalysis, fetchAlertExplorer } from "../api/agent";
-import { COLORS } from "../constants";
+import { useState, useEffect, useCallback } from 'react';
+import { useNavigate } from 'react-router';
+import { motion } from 'motion/react';
+import { Search, SlidersHorizontal, ChevronLeft, ChevronRight, RefreshCw } from 'lucide-react';
+import { Slider } from '@/app/components/ui/slider';
+import { fetchLogs, type LogsResponse } from '../api/agent';
+import type { Alert } from '../types';
 
-const STATUS_OPTIONS = ["all", "anomaly", "normal"] as const;
-type Status = typeof STATUS_OPTIONS[number];
+/* â”€â”€â”€ Badges â”€â”€â”€ */
+function VerdictBadge({ verdict }: { verdict?: string }) {
+  if (!verdict) return <span className="text-muted-foreground text-xs">â€”</span>;
+  const s: Record<string, { bg: string; color: string; border: string }> = {
+    ATTACK:   { bg: 'rgba(227,0,15,0.12)',   color: '#E3000F', border: 'rgba(227,0,15,0.3)' },
+    BENIGN:   { bg: 'rgba(52,211,153,0.1)',  color: '#34D399', border: 'rgba(52,211,153,0.3)' },
+    ZERO_DAY: { bg: 'rgba(167,139,250,0.1)', color: '#A78BFA', border: 'rgba(167,139,250,0.3)' },
+  };
+  const v = s[verdict] ?? { bg: 'rgba(48,54,61,0.5)', color: '#8B949E', border: '#30363D' };
+  return (
+    <span className="inline-flex px-2 py-0.5 rounded text-[10px] font-bold"
+      style={{ background: v.bg, color: v.color, border: `1px solid ${v.border}` }}>
+      {verdict.replace('_', '-')}
+    </span>
+  );
+}
 
-const SOURCE_OPTIONS = ["all", "HDFS", "Network", "auth_log", "insider_threat"] as const;
-type Source = typeof SOURCE_OPTIONS[number];
+function ConfidencePill({ value }: { value: number }) {
+  const color = value >= 95 ? '#E3000F' : value >= 80 ? '#FBBF24' : '#34D399';
+  return (
+    <div className="flex items-center gap-2">
+      <div className="w-20 h-1.5 rounded-full overflow-hidden bg-muted">
+        <div className="h-full rounded-full" style={{ width: `${value}%`, background: color }} />
+      </div>
+      <span className="text-xs terminal-font" style={{ color }}>{value.toFixed(1)}%</span>
+    </div>
+  );
+}
 
-const EXAMPLE_LOG = `081109 203518 143 INFO dfs.DataNode$DataXceiver: Receiving block blk_-1608999687919862906 src: /10.250.19.102:54761 dest: /10.250.19.102:50010
-081109 203518 143 INFO dfs.DataNode$PacketResponder: PacketResponder 2 for block blk_-1608999687919862906 terminating`;
+const SOURCES = ['HDFS', 'SSH', 'UEBA', 'Network'] as const;
+const VERDICTS = [
+  { value: 'all',      label: 'All Verdicts' },
+  { value: 'ATTACK',   label: 'ATTACK' },
+  { value: 'BENIGN',   label: 'BENIGN' },
+  { value: 'ZERO_DAY', label: 'ZERO-DAY' },
+];
 
-export function Explorer() {
-  // ── List state ────────────────────────────────────────────────────────────
-  const [logs, setLogs]           = useState<any[]>([]);
-  const [total, setTotal]         = useState(0);
-  const [pages, setPages]         = useState(0);
-  const [page, setPage]           = useState(1);
-  const [search, setSearch]       = useState("");
-  const [draftSearch, setDraftSearch] = useState("");
-  const [status, setStatus]       = useState<Status>("all");
-  const [source, setSource]       = useState<Source>("all");
-  const [isLoading, setIsLoading] = useState(true);
-  const [selectedLog, setSelectedLog] = useState<any | null>(null);
-  const [explorerData, setExplorerData] = useState<any | null>(null);
-  const searchTimer               = useRef<ReturnType<typeof setTimeout> | null>(null);
+export function AlertsExplorer() {
+  const navigate = useNavigate();
 
-  // ── Submit-modal state ────────────────────────────────────────────────────
-  const [isModalOpen, setIsModalOpen]   = useState(false);
-  const [rawLog, setRawLog]             = useState("");
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [submitResult, setSubmitResult] = useState<any>(null);
+  // Filter state
+  const [source, setSource] = useState('all');
+  const [status, setStatus] = useState('all');
+  const [minConf, setMinConf]   = useState(0);
+  const [searchInput, setSearchInput] = useState('');
+  const [search, setSearch]     = useState('');
+  const [page, setPage]         = useState(1);
 
-  // ── Fetch logs from backend ───────────────────────────────────────────────
-  const load = useCallback(async () => {
-    setIsLoading(true);
-    const result = await fetchLogs({ page, limit: 50, search, status, source });
-    setLogs(result.logs);
-    setTotal(result.total);
-    setPages(result.pages);
-    setIsLoading(false);
+  // Data state
+  const [data, setData]         = useState<LogsResponse | null>(null);
+  const [loading, setLoading]   = useState(false);
+  const [error, setError]       = useState<string | null>(null);
+
+  // Debounce search
+  useEffect(() => {
+    const t = setTimeout(() => { setSearch(searchInput); setPage(1); }, 420);
+    return () => clearTimeout(t);
+  }, [searchInput]);
+
+  // Reset page when filters change
+  useEffect(() => { setPage(1); }, [source, status, minConf]);
+
+  const loadData = useCallback(() => {
+    setLoading(true);
+    setError(null);
+    fetchLogs({ page, limit: 20, search, status, source })
+      .then(res => { setData(res); setLoading(false); })
+      .catch(e  => { setError(e.message); setLoading(false); });
   }, [page, search, status, source]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => { loadData(); }, [loadData]);
 
-  useEffect(() => {
-    if (selectedLog && (selectedLog.source === "auth_log" || selectedLog.source === "insider_threat")) {
-      setExplorerData(null);
-      fetchAlertExplorer(selectedLog.id).then(res => setExplorerData(res?.logs));
-    } else {
-      setExplorerData(null);
-    }
-  }, [selectedLog]);
+  // Client-side confidence filter on top of API results
+  const rows: Alert[] = (data?.logs ?? []).filter(a => a.confidence >= minConf);
 
-  // Debounce search input
-  const handleSearchInput = (val: string) => {
-    setDraftSearch(val);
-    if (searchTimer.current) clearTimeout(searchTimer.current);
-    searchTimer.current = setTimeout(() => {
-      setSearch(val);
-      setPage(1);
-    }, 400);
-  };
-
-  const handleStatusChange = (s: Status) => {
-    setStatus(s);
-    setPage(1);
-    setSelectedLog(null);
-  };
-
-  const handleSourceChange = (s: Source) => {
-    setSource(s);
-    setPage(1);
-    setSelectedLog(null);
-  };
-
-  // ── Submit log ────────────────────────────────────────────────────────────
-  const handleSubmit = async () => {
-    if (!rawLog.trim()) return;
-    setIsSubmitting(true);
-    setSubmitResult(null);
-    const result = await submitLogForAnalysis(rawLog, "hdfs");
-    setSubmitResult(result);
-    setIsSubmitting(false);
-  };
-
-  const openModal = () => {
-    setIsModalOpen(true);
-    setSubmitResult(null);
-    setRawLog("");
-  };
-
-  const closeModal = () => {
-    setIsModalOpen(false);
-    if (submitResult) {
-      load(); // Reload logs if a log was analyzed
-    }
-  };
+  const isAttack = (a: Alert) => a.verdict === 'ATTACK' || a.verdict === 'ZERO_DAY';
 
   return (
-    <div className="flex h-full flex-col gap-4 max-w-7xl mx-auto overflow-hidden">
-      {/* Header */}
-      <div className="flex items-center justify-between shrink-0">
-        <div>
-          <h1 className="text-2xl font-semibold text-white">Log Explorer</h1>
-          <p className="text-[#717182] text-sm mt-1">
-            Browsing <span className="font-mono text-[#e9ebef]">{total.toLocaleString()}</span> HDFS sessions & Network flows
-          </p>
+    <div className="flex h-[calc(100vh-4rem)]">
+      {/* â”€â”€ Sidebar â”€â”€ */}
+      <aside
+        className="w-64 shrink-0 p-5 overflow-y-auto border-r border-border bg-background/50"
+      >
+        <div className="flex items-center gap-2 mb-6">
+          <SlidersHorizontal className="w-4 h-4 text-[#E3000F]" />
+          <span className="text-foreground font-semibold text-sm">Filters</span>
         </div>
-        <Button onClick={openModal} className="bg-[#2F81F7] hover:bg-[#2F81F7]/90 text-white">
-          <FileJson className="h-4 w-4 mr-2" /> Submit Log for Analysis
-        </Button>
-      </div>
 
-      <Card className="flex flex-col flex-1 min-h-0 overflow-hidden">
-        {/* Filters */}
-        <div className="p-4 border-b border-[#30363D] flex flex-wrap gap-3 items-center shrink-0">
-          {/* Search */}
-          <div className="relative flex-1 min-w-[250px]">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-[#717182]" />
+        {/* Source */}
+        <div className="mb-6">
+          <p className="text-muted-foreground text-xs font-medium uppercase tracking-widest mb-3">Source</p>
+          {[{ value: 'all', label: 'All Sources' }, ...SOURCES.map(s => ({ value: s, label: s === 'HDFS' ? 'HDFS System' : s === 'SSH' ? 'SSH Auth' : s === 'UEBA' ? 'UEBA Insider' : 'Network Flows' }))].map(opt => (
+            <label key={opt.value} className="flex items-center gap-2.5 mb-2.5 cursor-pointer group">
+              <input
+                type="radio"
+                name="source"
+                value={opt.value}
+                checked={source === opt.value}
+                onChange={() => setSource(opt.value)}
+                className="accent-[#E3000F]"
+              />
+              <span className={`text-sm transition-colors ${source === opt.value ? 'text-foreground' : 'text-muted-foreground group-hover:text-foreground'}`}>
+                {opt.label}
+              </span>
+            </label>
+          ))}
+        </div>
+
+        {/* Verdict */}
+        <div className="mb-6">
+          <p className="text-muted-foreground text-xs font-medium uppercase tracking-widest mb-3">Verdict</p>
+          {VERDICTS.map(opt => (
+            <label key={opt.value} className="flex items-center gap-2.5 mb-2.5 cursor-pointer group">
+              <input
+                type="radio"
+                name="verdict"
+                value={opt.value}
+                checked={status === opt.value}
+                onChange={() => setStatus(opt.value)}
+                className="accent-[#E3000F]"
+              />
+              <span className={`text-sm transition-colors ${status === opt.value ? 'text-foreground' : 'text-muted-foreground group-hover:text-foreground'}`}>
+                {opt.label}
+              </span>
+            </label>
+          ))}
+        </div>
+
+        {/* Confidence */}
+        <div className="mb-6">
+          <div className="flex justify-between mb-3">
+            <p className="text-muted-foreground text-xs font-medium uppercase tracking-widest">Min Confidence</p>
+            <span className="text-[#E3000F] text-xs font-bold">{minConf}%</span>
+          </div>
+          <Slider
+            value={[minConf]}
+            onValueChange={([v]) => setMinConf(v)}
+            min={0} max={99} step={5}
+            className="[&_[role=slider]]:bg-[#E3000F] [&_[role=slider]]:border-[#E3000F]"
+          />
+        </div>
+
+        <button
+          onClick={() => { setSource('all'); setStatus('all'); setMinConf(0); setSearchInput(''); }}
+          className="w-full p-3 rounded-lg border border-border text-xs text-muted-foreground hover:text-foreground transition-colors"
+        >
+          Clear Filters
+        </button>
+      </aside>
+
+      {/* â”€â”€ Main content â”€â”€ */}
+      <div className="flex-1 flex flex-col overflow-hidden">
+        {/* Toolbar */}
+        <div className="px-5 py-4 flex items-center gap-3 border-b border-border">
+          <div className="relative flex-1 max-w-md">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
             <input
-              type="text"
-              value={draftSearch}
-              onChange={(e) => handleSearchInput(e.target.value)}
-              placeholder="Search by block ID or log content…"
-              className="w-full h-10 bg-[#0D1117] border border-[#30363D] rounded-md pl-10 pr-4 text-sm text-white focus:outline-none focus:border-[#2F81F7] focus:ring-1 focus:ring-[#2F81F7]"
+              value={searchInput}
+              onChange={e => setSearchInput(e.target.value)}
+              placeholder="Search by ID, title, IPâ€¦"
+              className="w-full pl-9 pr-4 py-2 rounded-lg text-sm text-foreground bg-muted/50 border border-border"
             />
           </div>
 
-          {/* Source filter */}
-          <div className="flex items-center gap-1 bg-[#0D1117] border border-[#30363D] rounded-md p-1">
-            <Server className="h-3.5 w-3.5 text-[#717182] ml-1" />
-            {SOURCE_OPTIONS.map((s) => (
-              <button
-                key={s}
-                onClick={() => handleSourceChange(s)}
-                className={cn(
-                  "px-3 py-1 rounded text-xs font-medium capitalize transition-colors",
-                  source === s
-                    ? "bg-[#30363D] text-white"
-                    : "text-[#717182] hover:text-white"
-                )}
-              >
-                {s === "all" ? "All Sources" : s}
-              </button>
-            ))}
-          </div>
+          <button
+            onClick={loadData}
+            className="p-2 rounded-lg text-muted-foreground hover:text-foreground transition-colors border border-border"
+            title="Refresh"
+          >
+            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+          </button>
 
-          {/* Status filter */}
-          <div className="flex items-center gap-1 bg-[#0D1117] border border-[#30363D] rounded-md p-1">
-            <Filter className="h-3.5 w-3.5 text-[#717182] ml-1" />
-            {STATUS_OPTIONS.map((s) => (
-              <button
-                key={s}
-                onClick={() => handleStatusChange(s)}
-                className={cn(
-                  "px-3 py-1 rounded text-xs font-medium capitalize transition-colors",
-                  status === s
-                    ? "bg-[#30363D] text-white"
-                    : "text-[#717182] hover:text-white"
-                )}
-              >
-                {s === "all" ? "All" : s === "anomaly" ? "Anomaly" : "Normal"}
-              </button>
-            ))}
-          </div>
+          {data && (
+            <span className="text-muted-foreground text-xs ml-1">
+              {data.total.toLocaleString()} results
+            </span>
+          )}
         </div>
 
-        {/* Table + Sidebar */}
-        <div className="flex flex-1 min-h-0 relative overflow-hidden">
-          {/* Table */}
-          <div className={cn("flex-1 overflow-auto custom-scrollbar transition-all duration-300", selectedLog ? "mr-80" : "")}>
-            {isLoading ? (
-              <div className="flex justify-center py-12">
-                <Loader2 className="h-8 w-8 animate-spin text-[#717182]" />
-              </div>
-            ) : logs.length === 0 ? (
-              <div className="text-center py-12 text-[#717182]">
-                <FileJson className="h-12 w-12 mx-auto mb-4 opacity-20" />
-                <p>No logs found matching your criteria.</p>
-                {search && (
-                  <button
-                    onClick={() => { setDraftSearch(""); setSearch(""); setPage(1); }}
-                    className="mt-3 text-[#2F81F7] text-sm hover:underline"
-                  >
-                    Clear search
-                  </button>
-                )}
-              </div>
-            ) : (
-              <table className="w-full text-sm text-left whitespace-nowrap">
-                <thead className="text-xs text-[#717182] uppercase bg-[#0D1117] sticky top-0 z-10 border-b border-[#30363D]">
+        {/* Table */}
+        <div className="flex-1 overflow-y-auto">
+          {error ? (
+            <div className="flex flex-col items-center justify-center h-64 text-center">
+              <p className="text-[#E3000F] text-sm font-medium mb-1">Failed to load alerts</p>
+              <p className="text-muted-foreground text-xs mb-4">{error}</p>
+              <button onClick={loadData} className="text-xs text-[#E3000F] underline">Retry</button>
+            </div>
+          ) : loading && !data ? (
+            <div className="flex items-center justify-center h-64">
+              <RefreshCw className="w-6 h-6 text-muted-foreground animate-spin" />
+            </div>
+          ) : (
+            <table className="w-full">
+              <thead className="sticky top-0 bg-background/95 backdrop-blur-sm">
+                <tr className="border-b border-border">
+                  {['Timestamp', 'ID', 'Source', 'Title', 'Verdict', 'Attack Type', 'AI Confidence', ''].map(h => (
+                    <th key={h} className="px-4 py-3 text-left text-muted-foreground text-xs font-medium">{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {rows.length === 0 && !loading ? (
                   <tr>
-                    <th className="px-4 py-3 font-medium">Block ID</th>
-                    <th className="px-4 py-3 font-medium">Source</th>
-                    <th className="px-4 py-3 font-medium w-full">Log Preview</th>
-                    <th className="px-4 py-3 font-medium">Events</th>
-                    <th className="px-4 py-3 font-medium">Prediction</th>
-                    <th className="px-4 py-3 font-medium">Ground Truth</th>
-                    <th className="px-4 py-3 font-medium">Confidence</th>
+                    <td colSpan={8} className="px-4 py-12 text-center text-muted-foreground text-sm">
+                      No alerts match the current filters
+                    </td>
                   </tr>
-                </thead>
-                <tbody>
-                  {logs.map((log) => {
-                    const isCorrect = log.prediction === log.truth;
-                    return (
-                      <tr
-                        key={log.id}
-                        onClick={() => setSelectedLog(log)}
-                        className={cn(
-                          "border-b border-[#30363D] hover:bg-[#30363D]/30 transition-colors cursor-pointer",
-                          selectedLog?.id === log.id && "bg-[#30363D]/50"
-                        )}
-                      >
-                        <td className="px-4 py-3 font-mono text-[#e9ebef] text-xs">{log.id}</td>
-                        <td className="px-4 py-3">
-                          <Badge variant="outline" className="text-xs gap-1">
-                            {log.source === "Network" ? (
-                                <><Network className="h-3 w-3" style={{ color: COLORS.blue }} /> {log.source}</>
-                            ) : log.source === "auth_log" ? (
-                                <><Server className="h-3 w-3" style={{ color: COLORS.purple }} /> SSH</>
-                            ) : log.source === "insider_threat" ? (
-                                <><Server className="h-3 w-3" style={{ color: COLORS.red }} /> UEBA</>
-                            ) : (
-                                <><Server className="h-3 w-3" style={{ color: COLORS.amber }} /> {log.source}</>
-                            )}
-                          </Badge>
-                        </td>
-                        <td className="px-4 py-3 font-mono text-xs text-[#717182] max-w-[320px] truncate" title={log.preview}>
-                          {log.preview}
-                        </td>
-                        <td className="px-4 py-3 font-mono text-xs text-[#717182]">{log.eventCount}</td>
-                        <td className="px-4 py-3">
-                          {log.prediction === "Anomaly" ? (
-                            <div className="flex items-center gap-1 text-[#F85149]">
-                              <ShieldAlert className="h-4 w-4" /> Anomaly
-                            </div>
-                          ) : (
-                            <div className="flex items-center gap-1 text-[#3FB950]">
-                              <ShieldCheck className="h-4 w-4" /> Normal
-                            </div>
-                          )}
-                        </td>
-                        <td className="px-4 py-3">
-                          <span className={cn(
-                            "text-xs font-mono",
-                            isCorrect ? "text-[#3FB950]" : "text-[#F85149]"
-                          )}>
-                            {log.truth ?? "—"}
-                          </span>
-                        </td>
-                        <td className="px-4 py-3 font-mono text-[#e9ebef] text-xs">{log.confidence}%</td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            )}
-          </div>
-
-          {/* Slide-in Sidebar */}
-          <div className={cn(
-            "absolute top-0 right-0 h-full w-80 bg-[#161B22] border-l border-[#30363D] shadow-xl transition-transform duration-300 transform",
-            selectedLog ? "translate-x-0" : "translate-x-full"
-          )}>
-            {selectedLog && (
-              <div className="flex flex-col h-full">
-                <div className="flex items-center justify-between p-4 border-b border-[#30363D]">
-                  <h3 className="font-semibold text-white">Block Details</h3>
-                  <Button variant="ghost" size="icon" onClick={() => setSelectedLog(null)} className="h-8 w-8">
-                    <X className="h-4 w-4" />
-                  </Button>
-                </div>
-                <div className="p-4 flex-1 overflow-y-auto custom-scrollbar flex flex-col gap-4 text-sm">
-                  <div>
-                    <span className="text-xs text-[#717182] uppercase mb-1 block">Block ID</span>
-                    <span className="font-mono text-white break-all">{selectedLog.id}</span>
-                  </div>
-                  <div>
-                    <span className="text-xs text-[#717182] uppercase mb-1 block">Events in Session</span>
-                    <span className="font-mono text-white">{selectedLog.eventCount}</span>
-                  </div>
-                  <div>
-                    <span className="text-xs text-[#717182] uppercase mb-1 block">LSTM Prediction</span>
-                    <Badge variant={selectedLog.prediction === "Anomaly" ? "critical" : "success"}>
-                      {selectedLog.prediction.toUpperCase()} &mdash; {selectedLog.confidence}%
-                    </Badge>
-                  </div>
-                  <div>
-                    <span className="text-xs text-[#717182] uppercase mb-1 block">Ground Truth</span>
-                    <Badge variant={selectedLog.truth === "Anomaly" ? "critical" : "success"}>
-                      {selectedLog.truth ?? "Unknown"}
-                    </Badge>
-                  </div>
-                  {selectedLog.prediction !== selectedLog.truth && (
-                    <div className="p-2 bg-[#F85149]/10 border border-[#F85149]/30 rounded text-xs text-[#F85149]">
-                      ⚠ Misclassification detected
-                    </div>
-                  )}
-                  <div>
-                    <span className="text-xs text-[#717182] uppercase mb-1 block">Raw Log Data</span>
-                    <div className="p-3 bg-[#0D1117] rounded-md border border-[#30363D] font-mono text-xs text-[#e9ebef] break-all whitespace-pre-wrap max-h-64 overflow-auto custom-scrollbar">
-                      {selectedLog.source === "auth_log" ? (
-                        explorerData ? explorerData.ssh?.join('\n') : "Loading SSH logs..."
-                      ) : selectedLog.source === "insider_threat" ? (
-                        explorerData ? JSON.stringify(explorerData, null, 2) : "Loading UEBA behavior logs..."
-                      ) : (
-                        selectedLog.raw || selectedLog.preview
-                      )}
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
-          </div>
+                ) : rows.map((alert, i) => (
+                  <motion.tr
+                    key={alert.id}
+                    initial={{ opacity: 0, x: -8 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    transition={{ duration: 0.2, delay: i * 0.03 }}
+                    onClick={() => navigate(`/alerts/${alert.id}`, { state: { alert } })}
+                    className="border-b border-border/50 hover:bg-muted/30 transition-colors cursor-pointer"
+                  >
+                    <td className="px-4 py-3 text-muted-foreground text-xs terminal-font whitespace-nowrap">{alert.time}</td>
+                    <td className="px-4 py-3 text-muted-foreground text-xs terminal-font">{alert.id}</td>
+                    <td className="px-4 py-3 text-foreground text-xs">{alert.source}</td>
+                    <td className="px-4 py-3 text-foreground text-xs max-w-[180px] truncate">{alert.title}</td>
+                    <td className="px-4 py-3"><VerdictBadge verdict={alert.verdict} /></td>
+                    <td className="px-4 py-3 text-muted-foreground text-xs">{alert.attack_type ?? alert.prediction ?? 'â€”'}</td>
+                    <td className="px-4 py-3"><ConfidencePill value={alert.confidence} /></td>
+                    <td className="px-4 py-3">
+                      <ChevronRight className="w-4 h-4 text-[#30363D]" />
+                    </td>
+                  </motion.tr>
+                ))}
+              </tbody>
+            </table>
+          )}
         </div>
 
         {/* Pagination */}
-        {!isLoading && pages > 1 && (
-          <div className="flex items-center justify-between px-4 py-3 border-t border-[#30363D] shrink-0">
-            <span className="text-xs text-[#717182]">
-              Page <span className="text-white font-mono">{page}</span> of{" "}
-              <span className="text-white font-mono">{pages}</span> &nbsp;·&nbsp;{" "}
-              <span className="text-white font-mono">{total.toLocaleString()}</span> sessions
+        {data && data.pages > 1 && (
+          <div
+            className="px-5 py-3 flex items-center justify-between border-t border-border"
+          >
+            <span className="text-muted-foreground text-xs">
+              Page {data.page} of {data.pages}
             </span>
             <div className="flex items-center gap-2">
-              <Button
-                variant="outline" size="sm"
-                onClick={() => { setPage((p) => Math.max(1, p - 1)); setSelectedLog(null); }}
-                disabled={page === 1}
+              <button
+                onClick={() => setPage(p => Math.max(1, p - 1))}
+                disabled={page <= 1}
+                className="p-1.5 rounded text-muted-foreground hover:text-foreground disabled:opacity-30 transition-colors"
               >
-                <ChevronLeft className="h-4 w-4" />
-              </Button>
-              <Button
-                variant="outline" size="sm"
-                onClick={() => { setPage((p) => Math.min(pages, p + 1)); setSelectedLog(null); }}
-                disabled={page === pages}
+                <ChevronLeft className="w-4 h-4" />
+              </button>
+              {Array.from({ length: Math.min(5, data.pages) }, (_, i) => {
+                const p = page <= 3 ? i + 1 : page + i - 2;
+                if (p < 1 || p > data.pages) return null;
+                return (
+                  <button
+                    key={p}
+                    onClick={() => setPage(p)}
+                    className="w-7 h-7 rounded text-xs font-medium transition-all"
+                    style={p === page
+                      ? { background: 'rgba(227,0,15,0.15)', color: '#E3000F', border: '1px solid rgba(227,0,15,0.3)' }
+                      : { color: '#8B949E' }
+                    }
+                  >
+                    {p}
+                  </button>
+                );
+              })}
+              <button
+                onClick={() => setPage(p => Math.min(data.pages, p + 1))}
+                disabled={page >= data.pages}
+                className="p-1.5 rounded text-muted-foreground hover:text-foreground disabled:opacity-30 transition-colors"
               >
-                <ChevronRight className="h-4 w-4" />
-              </Button>
+                <ChevronRight className="w-4 h-4" />
+              </button>
             </div>
           </div>
         )}
-      </Card>
-
-      {/* Submit Modal */}
-      {isModalOpen && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-          <div className="bg-[#161B22] border border-[#30363D] rounded-lg shadow-2xl w-full max-w-2xl flex flex-col overflow-hidden">
-            <div className="flex items-center justify-between p-4 border-b border-[#30363D]">
-              <h2 className="text-lg font-semibold text-white">Submit Log for Analysis</h2>
-              <Button variant="ghost" size="icon" onClick={closeModal}>
-                <X className="h-5 w-5" />
-              </Button>
-            </div>
-            <div className="p-4">
-              <label className="text-sm font-medium text-[#e9ebef] mb-2 block">
-                Raw HDFS Log Lines (one or more, with block IDs)
-              </label>
-              <textarea
-                className="w-full h-44 bg-[#0D1117] border border-[#30363D] rounded-md p-3 text-sm font-mono text-white focus:outline-none focus:border-[#2F81F7] focus:ring-1 focus:ring-[#2F81F7]"
-                placeholder={EXAMPLE_LOG}
-                value={rawLog}
-                onChange={(e) => setRawLog(e.target.value)}
-              />
-              <p className="text-xs text-[#717182] mt-2">
-                Tip: paste raw HDFS log lines — the LSTM model parses event templates automatically.
-              </p>
-
-              {submitResult && (
-                <div className={cn(
-                  "mt-4 p-4 rounded-md border",
-                  submitResult.success ? "bg-[#0D1117] border-[#30363D]" : "bg-[#F85149]/10 border-[#F85149]/30"
-                )}>
-                  <h3 className="text-sm font-semibold text-white mb-2">Analysis Result</h3>
-                  <div className="flex items-center gap-3 flex-wrap">
-                    <Badge variant={submitResult.prediction === "Anomaly" ? "critical" : "success"}>
-                      {submitResult.prediction?.toUpperCase()}
-                    </Badge>
-                    <span className="text-sm font-mono text-[#e9ebef]">Confidence: {submitResult.confidence}%</span>
-                  </div>
-                  {submitResult.tokens && (
-                    <div className="mt-2 flex flex-wrap gap-1">
-                      {submitResult.tokens.map((t: string, i: number) => (
-                        <span key={i} className="text-xs bg-[#30363D] text-[#e9ebef] px-2 py-0.5 rounded font-mono">{t}</span>
-                      ))}
-                    </div>
-                  )}
-                  <p className="text-xs text-[#717182] mt-2">{submitResult.message}</p>
-                </div>
-              )}
-            </div>
-            <div className="p-4 border-t border-[#30363D] flex justify-end gap-3 bg-[#0D1117]/50">
-              <Button variant="ghost" onClick={closeModal}>Cancel</Button>
-              <Button
-                className="bg-[#2F81F7] hover:bg-[#2F81F7]/90 text-white"
-                onClick={handleSubmit}
-                disabled={isSubmitting || !rawLog.trim()}
-              >
-                {isSubmitting ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Play className="h-4 w-4 mr-2" />}
-                {isSubmitting ? "Analyzing…" : "Run Analysis"}
-              </Button>
-            </div>
-          </div>
-        </div>
-      )}
+      </div>
     </div>
   );
 }

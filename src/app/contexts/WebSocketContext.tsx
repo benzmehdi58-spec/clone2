@@ -7,6 +7,7 @@ const WebSocketContext = createContext<WebSocketData>({
   sshAlerts: [],
   uebaAlerts: [],
   networkAlerts: [],
+  hdfsAlerts: [],
 });
 
 export function WebSocketProvider({ children }: { children: ReactNode }) {

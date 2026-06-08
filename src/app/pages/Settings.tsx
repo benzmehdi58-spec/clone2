@@ -19,7 +19,7 @@ function Section({ title, icon: Icon, children }: { title: string; icon: React.E
         <div className="p-1.5 rounded-lg" style={{ background: 'rgba(227,0,15,0.1)' }}>
           <Icon className="w-4 h-4 text-[#E3000F]" />
         </div>
-        <span className="text-[#F0F6FC] font-semibold text-sm">{title}</span>
+        <span className="text-foreground font-semibold text-sm">{title}</span>
       </div>
       <div className="p-5 space-y-5">{children}</div>
     </motion.div>
@@ -31,8 +31,8 @@ function ToggleRow({ label, description, checked, onChange }: { label: string; d
   return (
     <div className="flex items-center justify-between gap-4">
       <div>
-        <div className="text-[#F0F6FC] text-sm font-medium">{label}</div>
-        <div className="text-[#8B949E] text-xs mt-0.5">{description}</div>
+        <div className="text-foreground text-sm font-medium">{label}</div>
+        <div className="text-muted-foreground text-xs mt-0.5">{description}</div>
       </div>
       <button
         onClick={() => onChange(!checked)}
@@ -59,13 +59,13 @@ function InputRow({ label, value, onChange, type = 'text', placeholder = '' }: {
 }) {
   return (
     <div>
-      <label className="block text-xs text-[#8B949E] mb-1.5">{label}</label>
+      <label className="block text-xs text-muted-foreground mb-1.5">{label}</label>
       <input
         type={type}
         value={value}
         onChange={e => onChange(e.target.value)}
         placeholder={placeholder}
-        className="w-full px-3 py-2 rounded-lg text-sm text-[#F0F6FC] outline-none transition-all duration-200"
+        className="w-full px-3 py-2 rounded-lg text-sm text-foreground outline-none transition-all duration-200"
         style={{
           background: 'rgba(13,17,23,0.6)',
           border: '1px solid rgba(48,54,61,0.8)',
@@ -84,11 +84,11 @@ function SelectRow({ label, value, onChange, options }: {
 }) {
   return (
     <div>
-      <label className="block text-xs text-[#8B949E] mb-1.5">{label}</label>
+      <label className="block text-xs text-muted-foreground mb-1.5">{label}</label>
       <select
         value={value}
         onChange={e => onChange(e.target.value)}
-        className="w-full px-3 py-2 rounded-lg text-sm text-[#F0F6FC] outline-none appearance-none cursor-pointer"
+        className="w-full px-3 py-2 rounded-lg text-sm text-foreground outline-none appearance-none cursor-pointer"
         style={{
           background: 'rgba(13,17,23,0.6)',
           border: '1px solid rgba(48,54,61,0.8)',
@@ -154,8 +154,8 @@ export function Settings() {
         className="mb-8 flex items-end justify-between"
       >
         <div>
-          <h1 className="text-[#F0F6FC] text-2xl font-bold tracking-tight">Settings</h1>
-          <p className="text-[#8B949E] text-sm mt-1">Configure CyberAI platform preferences</p>
+          <h1 className="text-foreground text-2xl font-bold tracking-tight">Settings</h1>
+          <p className="text-muted-foreground text-sm mt-1">Configure CyberAI platform preferences</p>
         </div>
         <button
           onClick={handleSave}
@@ -283,7 +283,7 @@ export function Settings() {
           />
           <div className="flex items-center gap-2 p-3 rounded-lg" style={{ background: 'rgba(227,0,15,0.06)', border: '1px solid rgba(227,0,15,0.15)' }}>
             <AlertTriangle className="w-3.5 h-3.5 text-[#FBBF24] shrink-0" />
-            <span className="text-[#8B949E] text-xs">Changes to the WebSocket URL require a page reload to reconnect.</span>
+            <span className="text-muted-foreground text-xs">Changes to the WebSocket URL require a page reload to reconnect.</span>
           </div>
         </Section>
 
@@ -335,7 +335,7 @@ export function Settings() {
             <div className="p-1.5 rounded-lg" style={{ background: 'rgba(227,0,15,0.1)' }}>
               <Key className="w-4 h-4 text-[#E3000F]" />
             </div>
-            <span className="text-[#F0F6FC] font-semibold text-sm">Integrations</span>
+            <span className="text-foreground font-semibold text-sm">Integrations</span>
           </div>
           <div className="p-5">
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
@@ -358,8 +358,8 @@ export function Settings() {
                   onMouseLeave={e => { e.currentTarget.style.borderColor = item.status === 'configured' ? 'rgba(52,211,153,0.2)' : 'rgba(48,54,61,0.6)'; }}
                 >
                   <div>
-                    <div className="text-[#F0F6FC] text-sm font-medium">{item.name}</div>
-                    <div className="text-[#8B949E] text-xs mt-0.5">{item.desc}</div>
+                    <div className="text-foreground text-sm font-medium">{item.name}</div>
+                    <div className="text-muted-foreground text-xs mt-0.5">{item.desc}</div>
                   </div>
                   <div className="flex items-center gap-2 shrink-0">
                     <span
@@ -371,7 +371,7 @@ export function Settings() {
                     >
                       {item.status === 'configured' ? 'Active' : 'Set up'}
                     </span>
-                    <ChevronRight className="w-3.5 h-3.5 text-[#8B949E]" />
+                    <ChevronRight className="w-3.5 h-3.5 text-muted-foreground" />
                   </div>
                 </div>
               ))}
@@ -411,7 +411,7 @@ export function Settings() {
                 onClick={() => toast.error(`${action.label} — Confirm in production`)}
               >
                 <span className="text-[#E3000F] text-sm font-medium">{action.label}</span>
-                <span className="text-[#8B949E] text-xs mt-0.5">{action.desc}</span>
+                <span className="text-muted-foreground text-xs mt-0.5">{action.desc}</span>
               </button>
             ))}
           </div>

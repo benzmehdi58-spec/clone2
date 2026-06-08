@@ -1,5 +1,6 @@
 import { HashRouter, Routes, Route } from 'react-router';
 import { WebSocketProvider } from './contexts/WebSocketContext';
+import { ThemeProvider } from './contexts/ThemeContext';
 import { AppShell } from './components/layout/AppShell';
 import { Dashboard } from './pages/Dashboard';
 import { AlertsExplorer } from './pages/AlertsExplorer';
@@ -12,8 +13,9 @@ import { Toaster } from './components/ui/sonner';
 
 export default function App() {
   return (
-    <WebSocketProvider>
-      <HashRouter>
+    <ThemeProvider defaultTheme="dark" storageKey="vite-ui-theme">
+      <WebSocketProvider>
+        <HashRouter>
         <Routes>
           <Route path="/login" element={<Login />} />
           <Route element={<AppShell />}>
@@ -37,5 +39,6 @@ export default function App() {
         }}
       />
     </WebSocketProvider>
+  </ThemeProvider>
   );
 }

@@ -38,9 +38,9 @@ export function MetricCard({ title, value, subtitle, icon: Icon, variant = 'defa
           <span className="w-2 h-2 rounded-full bg-[#E3000F] mt-0.5 animate-pulse-red" />
         )}
       </div>
-      <div className="text-[#F0F6FC] text-2xl font-bold tabular-nums tracking-tight">{value}</div>
-      <div className="text-[#8B949E] text-sm mt-1">{title}</div>
-      {subtitle && <div className="text-[#8B949E]/60 text-xs mt-0.5">{subtitle}</div>}
+      <div className="text-foreground text-2xl font-bold tabular-nums tracking-tight">{value}</div>
+      <div className="text-muted-foreground text-sm mt-1">{title}</div>
+      {subtitle && <div className="text-muted-foreground/60 text-xs mt-0.5">{subtitle}</div>}
       {children && <div className="mt-3">{children}</div>}
     </motion.div>
   );

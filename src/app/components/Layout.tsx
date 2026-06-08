@@ -27,15 +27,15 @@ export function Layout() {
   ];
 
   return (
-    <div className="flex h-screen bg-[#0D1117] text-[#e9ebef] overflow-hidden font-sans">
+    <div className="flex h-screen bg-background text-foreground overflow-hidden font-sans">
       {/* Sidebar */}
       <aside 
         className={cn(
-          "flex flex-col border-r border-[#30363D] bg-[#161B22] transition-all duration-300",
+          "flex flex-col border-r border-border bg-card transition-all duration-300",
           isCollapsed ? "w-16" : "w-64"
         )}
       >
-        <div className="flex h-16 items-center justify-between px-4 border-b border-[#30363D]">
+        <div className="flex h-16 items-center justify-between px-4 border-b border-border">
           {!isCollapsed && (
             <div className="flex items-center gap-2 font-bold text-white">
               <ShieldAlert className="h-6 w-6 text-[#2F81F7]" />
@@ -53,8 +53,8 @@ export function Layout() {
               key={item.name}
               to={item.path}
               className={({ isActive }) => cn(
-                "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors hover:bg-[#30363D] group",
-                isActive ? "bg-[#30363D] text-white" : "text-[#717182] hover:text-[#e9ebef]",
+                "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors hover:bg-muted group",
+                isActive ? "bg-muted text-white" : "text-muted-foreground hover:text-foreground",
                 isCollapsed && "justify-center px-0"
               )}
             >
@@ -72,10 +72,10 @@ export function Layout() {
           ))}
         </nav>
 
-        <div className="border-t border-[#30363D] p-2">
+        <div className="border-t border-border p-2">
           <button
             onClick={() => setIsCollapsed(!isCollapsed)}
-            className="flex w-full items-center justify-center rounded-md p-2 text-[#717182] hover:bg-[#30363D] hover:text-white"
+            className="flex w-full items-center justify-center rounded-md p-2 text-muted-foreground hover:bg-muted hover:text-white"
           >
             {isCollapsed ? <ChevronRight className="h-5 w-5" /> : <ChevronLeft className="h-5 w-5" />}
           </button>
@@ -85,7 +85,7 @@ export function Layout() {
       {/* Main Content Area */}
       <div className="flex-1 flex flex-col min-w-0">
         {/* Top Navbar */}
-        <header className="flex h-16 items-center justify-between border-b border-[#30363D] bg-[#0D1117] px-6">
+        <header className="flex h-16 items-center justify-between border-b border-border bg-background px-6">
           <div className="flex items-center gap-4">
             {/* Context title could go here if needed */}
           </div>
@@ -95,16 +95,16 @@ export function Layout() {
                 <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#3FB950] opacity-75"></span>
                 <span className="relative inline-flex rounded-full h-3 w-3 bg-[#3FB950]"></span>
               </span>
-              <span className="text-sm font-medium text-[#e9ebef]">Agent Running</span>
+              <span className="text-sm font-medium text-foreground">Agent Running</span>
             </div>
-            <div className="h-8 w-8 rounded-full bg-[#30363D] overflow-hidden flex items-center justify-center ring-2 ring-[#30363D]">
+            <div className="h-8 w-8 rounded-full bg-muted overflow-hidden flex items-center justify-center ring-2 ring-[#30363D]">
               <img src="https://api.dicebear.com/7.x/avataaars/svg?seed=Felix" alt="User Avatar" />
             </div>
           </div>
         </header>
 
         {/* Page Content */}
-        <main className="flex-1 overflow-y-auto p-6 bg-[#0D1117]">
+        <main className="flex-1 overflow-y-auto p-6 bg-background">
           <Outlet />
         </main>
       </div>

@@ -35,7 +35,7 @@ function ConfidencePill({ value }: { value: number }) {
   );
 }
 
-const SOURCES = ['SSH', 'UEBA', 'Network'] as const;
+const SOURCES = ['SSH', 'UEBA', 'Network', 'HDFS'] as const;
 const VERDICTS = [
   { value: 'all',      label: 'All Verdicts' },
   { value: 'ATTACK',   label: 'ATTACK' },
@@ -98,7 +98,7 @@ export function AlertsExplorer() {
         {/* Source */}
         <div className="mb-6">
           <p className="text-[#8B949E] text-xs font-medium uppercase tracking-widest mb-3">Source</p>
-          {[{ value: 'all', label: 'All Sources' }, ...SOURCES.map(s => ({ value: s, label: s === 'SSH' ? 'SSH Auth' : s === 'UEBA' ? 'UEBA Insider' : 'Network Flows' }))].map(opt => (
+          {[{ value: 'all', label: 'All Sources' }, ...SOURCES.map(s => ({ value: s, label: s === 'SSH' ? 'SSH Auth' : s === 'UEBA' ? 'UEBA Insider' : s === 'HDFS' ? 'HDFS Anomalies' : 'Network Flows' }))].map(opt => (
             <label key={opt.value} className="flex items-center gap-2.5 mb-2.5 cursor-pointer group">
               <input
                 type="radio"

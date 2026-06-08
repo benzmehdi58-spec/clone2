@@ -1,18 +1,6 @@
 import os
 import sys
-import types
-import importlib.machinery
-
-# Mock onnxruntime to bypass DLL load failure on Windows/older CPUs
-# because we use sentence-transformers for embeddings instead of default ONNX.
-try:
-    import onnxruntime
-except BaseException:
-    mock_ort = types.ModuleType("onnxruntime")
-    mock_ort.InferenceSession = object
-    mock_ort.SessionOptions = object
-    mock_ort.__spec__ = importlib.machinery.ModuleSpec(name="onnxruntime", loader=None)
-    sys.modules["onnxruntime"] = mock_ort
+import onnxruntime
 
 os.environ["TRANSFORMERS_CACHE"] = "/tmp/st_cache"
 
@@ -39,9 +27,9 @@ chroma_ef = embedding_functions.SentenceTransformerEmbeddingFunction(model_name=
 chroma_path = os.path.join(os.path.dirname(__file__), "analyst_chroma_db")
 if os.access(os.path.dirname(__file__), os.W_OK):
     os.makedirs(chroma_path, exist_ok=True)
-    chroma_client = chromadb.PersistentClient(path=chroma_path)
+    chroma_client = chromadb.PersistentClient(path=chroma_path, settings=Settings(anonymized_telemetry=False))
 else:
-    chroma_client = chromadb.EphemeralClient()
+    chroma_client = chromadb.EphemeralClient(settings=Settings(anonymized_telemetry=False))
 
 collection = chroma_client.get_or_create_collection(
     name="analyst_documents",

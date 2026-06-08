@@ -266,3 +266,60 @@ class UEBAReplayEngine:
             "current_index": self.current_index,
             "delay_seconds": self.delay_seconds
         }
+
+# ─── HDFS Replay Engine ─────────────────────────────────────────────────────────
+
+class HDFSReplayEngine:
+    def __init__(self, alerts: list, delay_seconds: float = 3.0):
+        self.alerts = alerts
+        self.delay_seconds = delay_seconds
+        self.active = False
+        self.alerts_played = 0
+        self.current_index = 0
+
+    async def start(self, callback: Callable, stop_event: asyncio.Event):
+        self.active = True
+        self.current_index = 0
+        
+        if not self.alerts:
+            print("[HDFSReplayEngine] No alerts loaded.")
+            self.active = False
+            return
+            
+        import random
+        while not stop_event.is_set():
+            alert = dict(self.alerts[self.current_index])
+            try:
+                import time as _time
+                alert["time"] = _time.strftime("%Y-%m-%dT%H:%M:%SZ", _time.gmtime())
+                alert["timestamp_epoch"] = _time.time()
+                alert["id"] = f"HDFS-SIM-{int(_time.time()*1000)}"
+                alert["block_id"] = alert["id"]
+                
+                if asyncio.iscoroutinefunction(callback):
+                    await callback(alert)
+                else:
+                    callback(alert)
+            except Exception as e:
+                print(f"[HDFSReplayEngine] Error in callback: {e}")
+            
+            self.alerts_played += 1
+            self.current_index = (self.current_index + 1) % len(self.alerts)
+            
+            try:
+                actual_delay = self.delay_seconds * random.uniform(0.8, 1.2)
+                await asyncio.wait_for(stop_event.wait(), timeout=actual_delay)
+            except asyncio.TimeoutError:
+                pass
+
+        self.active = False
+
+    async def get_status(self) -> dict:
+        return {
+            "active": self.active,
+            "alerts_total": len(self.alerts),
+            "alerts_played": self.alerts_played,
+            "current_index": self.current_index,
+            "delay_seconds": self.delay_seconds
+        }
+

@@ -62,6 +62,13 @@ ATTACK_TO_MITRE = {
         sub_technique="Local Account", sub_id="T1087.001",
         description="Adversary scanning for valid usernames via invalid SSH login attempts."
     ),
+    # ── HDFS Log Anomaly ──────────────────────────────────────────────────────
+    "hdfs_anomaly": MITREResult(
+        tactic="Impact", tactic_id="TA0040",
+        technique="Data Destruction", technique_id="T1485",
+        kill_chain_stage=7, kill_chain_name="Actions on Objectives",
+        description="Adversary destroying data and files on specific systems or in large numbers on a network to interrupt availability to systems, services, and network resources."
+    ),
     # ── UEBA Insider Threat — Model B ─────────────────────────────────────────
     "insider_threat": MITREResult(
         tactic="Exfiltration", tactic_id="TA0010",
@@ -258,6 +265,39 @@ class MITREMapper:
             return result
             
         mitre_data = ATTACK_TO_MITRE["insider_threat"]
+        severity = "critical"
+            
+        result["mitre"] = {
+            "tactic":           mitre_data.tactic,
+            "tactic_id":        mitre_data.tactic_id,
+            "technique":        mitre_data.technique,
+            "technique_id":     mitre_data.technique_id,
+            "sub_technique":    mitre_data.sub_technique,
+            "sub_id":           mitre_data.sub_id,
+            "kill_chain_stage": mitre_data.kill_chain_stage,
+            "kill_chain_name":  mitre_data.kill_chain_name,
+            "description":      mitre_data.description,
+            "severity":         severity
+        }
+        return result
+
+    def enrich_hdfs(self, result: dict) -> dict:
+        """Enriches HDFS anomalies with MITRE context."""
+        prediction = result.get("prediction", result.get("label", "Normal"))
+        
+        if prediction == "Normal" or prediction == "BENIGN":
+            result["mitre"] = {
+                "tactic":           None,
+                "technique":        None,
+                "technique_id":     None,
+                "kill_chain_stage": 0,
+                "kill_chain_name":  "No Threat",
+                "severity":         "none",
+                "description":      "HDFS block sequence follows normal baseline."
+            }
+            return result
+            
+        mitre_data = ATTACK_TO_MITRE["hdfs_anomaly"]
         severity = "critical"
             
         result["mitre"] = {

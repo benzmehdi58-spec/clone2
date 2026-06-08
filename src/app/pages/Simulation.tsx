@@ -88,16 +88,16 @@ export function Simulation() {
           <h1 className="text-2xl font-semibold text-white flex items-center gap-2">
             <Zap className="h-6 w-6 text-yellow-400" /> Live Simulation
           </h1>
-          <p className="text-[#717182] mt-1 text-sm">
+          <p className="text-muted-foreground mt-1 text-sm">
             Control the detection pipeline in real time. Replay real logs, trigger attack scenarios, or generate adversarial logs with AI.
           </p>
         </div>
         <div className="flex items-center gap-4">
-          <div className="flex items-center gap-2 text-sm text-[#e9ebef] bg-[#30363D]/50 px-3 py-1.5 rounded-full">
+          <div className="flex items-center gap-2 text-sm text-foreground bg-muted/50 px-3 py-1.5 rounded-full">
             <div className={`w-2 h-2 rounded-full ${ws.connected ? 'bg-green-500 animate-pulse' : 'bg-red-500'}`}></div>
             WebSocket: {ws.connected ? 'Connected' : 'Disconnected'}
           </div>
-          <div className="flex items-center gap-2 text-sm text-[#e9ebef] bg-[#30363D]/50 px-3 py-1.5 rounded-full">
+          <div className="flex items-center gap-2 text-sm text-foreground bg-muted/50 px-3 py-1.5 rounded-full">
             <div className="w-2 h-2 rounded-full bg-green-500"></div>
             Agent: Ready
           </div>
@@ -106,42 +106,42 @@ export function Simulation() {
 
       {/* Mini Dashboard */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <Card className="bg-[#161B22] border-[#30363D]">
+        <Card className="bg-card border-border">
           <CardContent className="p-4 flex flex-col">
-            <div className="text-xs text-[#717182] font-semibold mb-1 uppercase tracking-wider">Total Simulated</div>
+            <div className="text-xs text-muted-foreground font-semibold mb-1 uppercase tracking-wider">Total Simulated</div>
             <div className="text-2xl font-bold text-white font-mono">
               { ((statusAll?.network?.flows_sent || 0) + (statusAll?.ssh?.sessions_played || 0) + (statusAll?.ueba?.alerts_played || 0)).toLocaleString() }
             </div>
-            <div className="text-[10px] text-[#717182] mt-1">Logs & Sessions</div>
+            <div className="text-[10px] text-muted-foreground mt-1">Logs & Sessions</div>
           </CardContent>
         </Card>
-        <Card className="bg-[#161B22] border-[#30363D]">
+        <Card className="bg-card border-border">
           <CardContent className="p-4 flex flex-col">
-            <div className="text-xs text-[#717182] font-semibold mb-1 uppercase tracking-wider flex items-center gap-1">
+            <div className="text-xs text-muted-foreground font-semibold mb-1 uppercase tracking-wider flex items-center gap-1">
               <ShieldAlert className="w-3 h-3 text-[#F85149]" /> Anomalies Caught
             </div>
             <div className="text-2xl font-bold text-[#F85149] font-mono">
               {ws.allAlerts.length.toLocaleString()}
             </div>
-            <div className="text-[10px] text-[#717182] mt-1">Live from Pipeline</div>
+            <div className="text-[10px] text-muted-foreground mt-1">Live from Pipeline</div>
           </CardContent>
         </Card>
-        <Card className="bg-[#161B22] border-[#30363D]">
+        <Card className="bg-card border-border">
           <CardContent className="p-4 flex flex-col">
-            <div className="text-xs text-[#717182] font-semibold mb-1 uppercase tracking-wider">Network Scenarios</div>
+            <div className="text-xs text-muted-foreground font-semibold mb-1 uppercase tracking-wider">Network Scenarios</div>
             <div className="text-2xl font-bold text-[#2F81F7] font-mono">
               { (statusAll?.network?.flows_sent || 0).toLocaleString() }
             </div>
-            <div className="text-[10px] text-[#717182] mt-1">Flows Injected</div>
+            <div className="text-[10px] text-muted-foreground mt-1">Flows Injected</div>
           </CardContent>
         </Card>
-        <Card className="bg-[#161B22] border-[#30363D]">
+        <Card className="bg-card border-border">
           <CardContent className="p-4 flex flex-col">
-            <div className="text-xs text-[#717182] font-semibold mb-1 uppercase tracking-wider">System Attacks</div>
+            <div className="text-xs text-muted-foreground font-semibold mb-1 uppercase tracking-wider">System Attacks</div>
             <div className="text-2xl font-bold text-[#8B5CF6] font-mono">
               { ((statusAll?.ssh?.sessions_played || 0) + (statusAll?.ueba?.alerts_played || 0)).toLocaleString() }
             </div>
-            <div className="text-[10px] text-[#717182] mt-1">SSH & UEBA</div>
+            <div className="text-[10px] text-muted-foreground mt-1">SSH & UEBA</div>
           </CardContent>
         </Card>
       </div>
@@ -150,14 +150,14 @@ export function Simulation() {
       <Card>
         <CardHeader>
           <CardTitle>Data Source Control</CardTitle>
-          <p className="text-sm text-[#717182]">Choose what feeds the detection pipeline</p>
+          <p className="text-sm text-muted-foreground">Choose what feeds the detection pipeline</p>
         </CardHeader>
         <CardContent>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             
             {/* SSH Card */}
             <div 
-              className={`p-4 rounded-xl border-2 transition-all cursor-pointer flex flex-col ${activeTab === 'ssh' ? 'border-[#D29922] bg-[#D29922]/5' : 'border-[#30363D] hover:border-[#D29922]/50 bg-[#0D1117]'} ${sshRunning ? 'border-[#D29922] animate-pulse-border' : ''}`}
+              className={`p-4 rounded-xl border-2 transition-all cursor-pointer flex flex-col ${activeTab === 'ssh' ? 'border-[#D29922] bg-[#D29922]/5' : 'border-border hover:border-[#D29922]/50 bg-background'} ${sshRunning ? 'border-[#D29922] animate-pulse-border' : ''}`}
               onClick={() => setActiveTab('ssh')}
             >
               <div className="flex justify-between items-start mb-2">
@@ -166,18 +166,18 @@ export function Simulation() {
                 </div>
                 {sshRunning && <Badge variant="warning" className="bg-[#D29922]">RUNNING</Badge>}
               </div>
-              <p className="text-xs text-[#717182] mb-4 flex-1">Stream SSH authentication logs for brute force / invalid user detection</p>
+              <p className="text-xs text-muted-foreground mb-4 flex-1">Stream SSH authentication logs for brute force / invalid user detection</p>
               
               {activeTab === 'ssh' && (
                 <div className="mt-2 space-y-4" onClick={e => e.stopPropagation()}>
                   <div>
-                    <label className="text-xs text-[#e9ebef] flex justify-between">
+                    <label className="text-xs text-foreground flex justify-between">
                       Delay between logs <span>{sshDelay}s</span>
                     </label>
                     <input type="range" min="0.5" max="10" step="0.5" value={sshDelay} onChange={e => { setSshDelay(parseFloat(e.target.value)); localStorage.setItem("sim_ssh_delay", e.target.value); }} className="w-full mt-1 accent-[#D29922]" />
                   </div>
-                  <div className="pt-2 border-t border-[#30363D] flex items-center justify-between">
-                    <div className="text-xs text-[#717182]">
+                  <div className="pt-2 border-t border-border flex items-center justify-between">
+                    <div className="text-xs text-muted-foreground">
                       Played: <span className="text-white font-mono">{statusAll?.ssh?.sessions_played || 0}</span>
                     </div>
                     {sshRunning ? (
@@ -196,7 +196,7 @@ export function Simulation() {
 
             {/* Network Card */}
             <div 
-              className={`p-4 rounded-xl border-2 transition-all cursor-pointer flex flex-col ${activeTab === 'network' ? 'border-[#2F81F7] bg-[#2F81F7]/5' : 'border-[#30363D] hover:border-[#2F81F7]/50 bg-[#0D1117]'} ${netRunning ? 'border-[#2F81F7] animate-pulse-border' : ''}`}
+              className={`p-4 rounded-xl border-2 transition-all cursor-pointer flex flex-col ${activeTab === 'network' ? 'border-[#2F81F7] bg-[#2F81F7]/5' : 'border-border hover:border-[#2F81F7]/50 bg-background'} ${netRunning ? 'border-[#2F81F7] animate-pulse-border' : ''}`}
               onClick={() => setActiveTab('network')}
             >
               <div className="flex justify-between items-start mb-2">
@@ -205,7 +205,7 @@ export function Simulation() {
                 </div>
                 {netRunning && <Badge variant="info" className="bg-[#2F81F7]">RUNNING</Badge>}
               </div>
-              <p className="text-xs text-[#717182] mb-4 flex-1">Generate synthetic CIC-IDS2017 flows for specific attack scenarios</p>
+              <p className="text-xs text-muted-foreground mb-4 flex-1">Generate synthetic CIC-IDS2017 flows for specific attack scenarios</p>
               
               {activeTab === 'network' && (
                 <div className="mt-2 space-y-4" onClick={e => e.stopPropagation()}>
@@ -215,20 +215,20 @@ export function Simulation() {
                       {id: 'bruteforce', name: 'Brute Force', t: 'T1110'}, {id: 'bot', name: 'Bot', t: 'T1071'},
                       {id: 'zero_day', name: 'Zero-Day', t: '???'}, {id: 'mixed', name: 'Mixed', t: 'Traffic'}
                     ].map(s => (
-                      <div key={s.id} onClick={() => { setNetScenario(s.id); localStorage.setItem("sim_net_scenario", s.id); }} className={`text-xs p-1.5 border rounded-md cursor-pointer text-center ${netScenario === s.id ? 'border-[#2F81F7] bg-[#2F81F7]/10 text-white' : 'border-[#30363D] text-[#717182] hover:border-[#717182]'}`}>
+                      <div key={s.id} onClick={() => { setNetScenario(s.id); localStorage.setItem("sim_net_scenario", s.id); }} className={`text-xs p-1.5 border rounded-md cursor-pointer text-center ${netScenario === s.id ? 'border-[#2F81F7] bg-[#2F81F7]/10 text-white' : 'border-border text-muted-foreground hover:border-[#717182]'}`}>
                         <div className="font-semibold">{s.name}</div>
                         <div className="text-[10px] opacity-70">{s.t}</div>
                       </div>
                     ))}
                   </div>
                   <div>
-                    <label className="text-xs text-[#e9ebef] flex justify-between">
+                    <label className="text-xs text-foreground flex justify-between">
                       Flows per second <span>{netFps}</span>
                     </label>
                     <input type="range" min="0.5" max="5.0" step="0.5" value={netFps} onChange={e => { setNetFps(parseFloat(e.target.value)); localStorage.setItem("sim_net_fps", e.target.value); }} className="w-full mt-1 accent-[#2F81F7]" />
                   </div>
-                  <div className="pt-2 border-t border-[#30363D] flex items-center justify-between">
-                    <div className="text-xs text-[#717182]">
+                  <div className="pt-2 border-t border-border flex items-center justify-between">
+                    <div className="text-xs text-muted-foreground">
                       Sent: <span className="text-white font-mono">{statusAll?.network?.flows_sent || 0}</span>
                     </div>
                     {netRunning ? (
@@ -247,7 +247,7 @@ export function Simulation() {
 
             {/* UEBA Card */}
             <div 
-              className={`p-4 rounded-xl border-2 transition-all cursor-pointer flex flex-col ${activeTab === 'ueba' ? 'border-[#8B5CF6] bg-[#8B5CF6]/5' : 'border-[#30363D] hover:border-[#8B5CF6]/50 bg-[#0D1117]'} ${uebaRunning ? 'border-[#8B5CF6] animate-pulse-border' : ''}`}
+              className={`p-4 rounded-xl border-2 transition-all cursor-pointer flex flex-col ${activeTab === 'ueba' ? 'border-[#8B5CF6] bg-[#8B5CF6]/5' : 'border-border hover:border-[#8B5CF6]/50 bg-background'} ${uebaRunning ? 'border-[#8B5CF6] animate-pulse-border' : ''}`}
               onClick={() => setActiveTab('ueba')}
             >
               <div className="flex justify-between items-start mb-2">
@@ -256,18 +256,18 @@ export function Simulation() {
                 </div>
                 {uebaRunning && <Badge variant="default" className="bg-[#8B5CF6]">RUNNING</Badge>}
               </div>
-              <p className="text-xs text-[#717182] mb-4 flex-1">Stream 7-day user behavior logs for insider threat detection</p>
+              <p className="text-xs text-muted-foreground mb-4 flex-1">Stream 7-day user behavior logs for insider threat detection</p>
               
               {activeTab === 'ueba' && (
                 <div className="mt-2 space-y-4" onClick={e => e.stopPropagation()}>
                   <div>
-                    <label className="text-xs text-[#e9ebef] flex justify-between">
+                    <label className="text-xs text-foreground flex justify-between">
                       Delay between logs <span>{uebaDelay}s</span>
                     </label>
                     <input type="range" min="0.5" max="10" step="0.5" value={uebaDelay} onChange={e => { setUebaDelay(parseFloat(e.target.value)); localStorage.setItem("sim_ueba_delay", e.target.value); }} className="w-full mt-1 accent-[#8B5CF6]" />
                   </div>
-                  <div className="pt-2 border-t border-[#30363D] flex items-center justify-between">
-                    <div className="text-xs text-[#717182]">
+                  <div className="pt-2 border-t border-border flex items-center justify-between">
+                    <div className="text-xs text-muted-foreground">
                       Played: <span className="text-white font-mono">{statusAll?.ueba?.alerts_played || 0}</span>
                     </div>
                     {uebaRunning ? (
@@ -292,7 +292,7 @@ export function Simulation() {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         {/* SSH Feed */}
         <Card className="flex flex-col h-[400px]">
-          <CardHeader className="pb-2 border-b border-[#30363D] flex flex-row items-center justify-between bg-[#161B22] rounded-t-xl">
+          <CardHeader className="pb-2 border-b border-border flex flex-row items-center justify-between bg-card rounded-t-xl">
             <div className="flex items-center gap-2">
               <Database className="h-4 w-4 text-[#D29922]" />
               <span className="font-semibold text-white">SSH Auth Logs</span>
@@ -301,10 +301,10 @@ export function Simulation() {
               {sshRunning || uebaRunning ? 'LIVE' : 'IDLE'}
             </div>
           </CardHeader>
-          <CardContent className="p-0 flex-1 overflow-y-auto bg-[#0D1117] rounded-b-xl flex flex-col-reverse relative">
+          <CardContent className="p-0 flex-1 overflow-y-auto bg-background rounded-b-xl flex flex-col-reverse relative">
             <div className="p-2 font-mono text-xs flex flex-col justify-end">
               {ws.sshAlerts.slice(0, 50).reverse().map((a, i) => (
-                <div key={i} className={`py-1 flex gap-2 border-l-2 pl-2 ${a.prediction !== 'Normal' && a.prediction !== 'BENIGN' ? 'border-red-500 bg-red-900/10 text-red-200' : 'border-[#30363D] text-[#717182]'}`}>
+                <div key={i} className={`py-1 flex gap-2 border-l-2 pl-2 ${a.prediction !== 'Normal' && a.prediction !== 'BENIGN' ? 'border-red-500 bg-red-900/10 text-red-200' : 'border-border text-muted-foreground'}`}>
                   <span className="opacity-50">[{new Date().toLocaleTimeString()}]</span>
                   <span className="truncate w-32">{a.id.substring(0, 20)}</span>
                   <span className="font-bold uppercase">{a.prediction}</span>
@@ -313,7 +313,7 @@ export function Simulation() {
               ))}
             </div>
           </CardContent>
-          <div className="px-4 py-2 bg-[#161B22] border-t border-[#30363D] rounded-b-xl flex justify-between text-xs text-[#717182]">
+          <div className="px-4 py-2 bg-card border-t border-border rounded-b-xl flex justify-between text-xs text-muted-foreground">
             <span>Analyzed: {ws.sshAlerts.length}</span>
             <span>Anomalies: {ws.sshAlerts.filter(a => a.prediction !== 'Normal' && a.prediction !== 'BENIGN').length}</span>
           </div>
@@ -321,7 +321,7 @@ export function Simulation() {
 
         {/* Network Feed */}
         <Card className="flex flex-col h-[400px]">
-          <CardHeader className="pb-2 border-b border-[#30363D] flex flex-row items-center justify-between bg-[#161B22] rounded-t-xl">
+          <CardHeader className="pb-2 border-b border-border flex flex-row items-center justify-between bg-card rounded-t-xl">
             <div className="flex items-center gap-2">
               <Network className="h-4 w-4 text-[#2F81F7]" />
               <span className="font-semibold text-white">Network Flows</span>
@@ -330,10 +330,10 @@ export function Simulation() {
               {netRunning ? 'LIVE' : 'IDLE'}
             </div>
           </CardHeader>
-          <CardContent className="p-0 flex-1 overflow-y-auto bg-[#0D1117] rounded-b-xl flex flex-col-reverse">
+          <CardContent className="p-0 flex-1 overflow-y-auto bg-background rounded-b-xl flex flex-col-reverse">
             <div className="p-2 font-mono text-xs flex flex-col justify-end">
               {ws.networkAlerts.slice(0, 50).reverse().map((a, i) => (
-                <div key={i} className={`py-1 flex gap-2 border-l-2 pl-2 ${a.verdict !== 'BENIGN' ? 'border-red-500 bg-red-900/10 text-red-200' : 'border-[#30363D] text-[#717182]'}`}>
+                <div key={i} className={`py-1 flex gap-2 border-l-2 pl-2 ${a.verdict !== 'BENIGN' ? 'border-red-500 bg-red-900/10 text-red-200' : 'border-border text-muted-foreground'}`}>
                   <span className="opacity-50">[{new Date().toLocaleTimeString()}]</span>
                   <span className="truncate w-20">{a.verdict}</span>
                   <span className="truncate w-24">{a.attack_type || "—"}</span>
@@ -342,7 +342,7 @@ export function Simulation() {
               ))}
             </div>
           </CardContent>
-          <div className="px-4 py-2 bg-[#161B22] border-t border-[#30363D] rounded-b-xl flex justify-between text-xs text-[#717182]">
+          <div className="px-4 py-2 bg-card border-t border-border rounded-b-xl flex justify-between text-xs text-muted-foreground">
             <span>Flows: {ws.networkAlerts.length}</span>
             <span>Attacks: {ws.networkAlerts.filter(a => a.verdict !== 'BENIGN').length}</span>
           </div>
@@ -351,9 +351,9 @@ export function Simulation() {
 
       {/* Section C: Agent Analysis Panel */}
       <Card className="w-full">
-        <CardHeader className="flex flex-row items-center justify-between border-b border-[#30363D] pb-4">
+        <CardHeader className="flex flex-row items-center justify-between border-b border-border pb-4">
           <CardTitle>AI Agent Analysis</CardTitle>
-          <div className="flex items-center gap-2 text-sm text-[#e9ebef]">
+          <div className="flex items-center gap-2 text-sm text-foreground">
             <input 
               type="checkbox" 
               checked={autoAnalyze} 
@@ -361,16 +361,16 @@ export function Simulation() {
                 setAutoAnalyze(e.target.checked);
                 localStorage.setItem("sim_auto_analyze", e.target.checked.toString());
               }}
-              className="accent-[#2F81F7] w-4 h-4 rounded bg-[#0D1117] border-[#30363D]"
+              className="accent-[#2F81F7] w-4 h-4 rounded bg-background border-border"
             />
             <label>Auto-analyze anomalies</label>
           </div>
         </CardHeader>
         <CardContent className="p-0 flex flex-col md:flex-row min-h-[400px]">
           {/* Incident Queue (Left 40%) */}
-          <div className="w-full md:w-2/5 border-r border-[#30363D] overflow-y-auto max-h-[500px] bg-[#161B22]">
+          <div className="w-full md:w-2/5 border-r border-border overflow-y-auto max-h-[500px] bg-card">
             {ws.allAlerts.filter(a => a.severity === 'critical' || (a.source === 'Network' && a.verdict !== 'BENIGN') || (a.source === 'SSH' && a.prediction !== 'Normal') || (a.source === 'UEBA' && a.prediction !== 'Normal')).length === 0 ? (
-              <div className="p-8 text-center text-[#717182] flex flex-col items-center gap-2">
+              <div className="p-8 text-center text-muted-foreground flex flex-col items-center gap-2">
                 <ShieldAlert className="h-8 w-8 opacity-20" />
                 <p>Waiting for anomalies to analyze...</p>
               </div>
@@ -380,11 +380,11 @@ export function Simulation() {
                   <div 
                     key={inc.id + i} 
                     onClick={() => setSelectedIncident(inc)}
-                    className={`p-3 border-b border-[#30363D] cursor-pointer hover:bg-[#30363D]/30 transition-colors border-l-4 ${selectedIncident?.id === inc.id ? 'bg-[#30363D]/40' : ''} ${inc.severity === 'critical' ? 'border-l-red-500' : 'border-l-amber-500'}`}
+                    className={`p-3 border-b border-border cursor-pointer hover:bg-muted/30 transition-colors border-l-4 ${selectedIncident?.id === inc.id ? 'bg-muted/40' : ''} ${inc.severity === 'critical' ? 'border-l-red-500' : 'border-l-amber-500'}`}
                   >
                     <div className="flex justify-between items-start">
-                      <span className="text-xs font-mono text-[#717182]">{inc.id.substring(0, 15)}</span>
-                      <span className="text-xs text-[#717182]">{new Date().toLocaleTimeString()}</span>
+                      <span className="text-xs font-mono text-muted-foreground">{inc.id.substring(0, 15)}</span>
+                      <span className="text-xs text-muted-foreground">{new Date().toLocaleTimeString()}</span>
                     </div>
                     <div className="font-medium text-white mt-1 text-sm truncate">{inc.title}</div>
                     <div className="flex items-center gap-2 mt-2">
@@ -402,9 +402,9 @@ export function Simulation() {
           </div>
           
           {/* Analysis Output (Right 60%) */}
-          <div className="w-full md:w-3/5 bg-[#0D1117] p-6 relative flex flex-col">
+          <div className="w-full md:w-3/5 bg-background p-6 relative flex flex-col">
             {!selectedIncident ? (
-              <div className="absolute inset-0 flex flex-col items-center justify-center text-[#717182] gap-3">
+              <div className="absolute inset-0 flex flex-col items-center justify-center text-muted-foreground gap-3">
                 <BrainCircuit className="h-12 w-12 opacity-20" />
                 <p>Select an incident from the queue</p>
               </div>
@@ -419,7 +419,7 @@ export function Simulation() {
                   </div>
                 </div>
                 
-                <div className="flex-1 overflow-y-auto pr-2 text-sm text-[#e9ebef] space-y-4">
+                <div className="flex-1 overflow-y-auto pr-2 text-sm text-foreground space-y-4">
                   <div>
                     <h3 className="text-[#2F81F7] font-semibold mb-1 uppercase text-xs tracking-wider">## Incident Summary</h3>
                     <p className="opacity-90">{selectedIncident.reason || "Anomalous patterns detected in the input stream exceeding the baseline threshold."}</p>
@@ -427,7 +427,7 @@ export function Simulation() {
                   
                   <div>
                     <h3 className="text-[#2F81F7] font-semibold mb-1 uppercase text-xs tracking-wider">## Raw Data Evidence</h3>
-                    <pre className="bg-[#161B22] p-2 rounded-md text-[11px] font-mono border border-[#30363D] overflow-x-auto whitespace-pre-wrap">
+                    <pre className="bg-card p-2 rounded-md text-[11px] font-mono border border-border overflow-x-auto whitespace-pre-wrap">
                       {selectedIncident.raw?.substring(0, 300) || JSON.stringify(selectedIncident, null, 2).substring(0, 300)}...
                     </pre>
                   </div>
@@ -442,10 +442,10 @@ export function Simulation() {
                   </div>
                 </div>
                 
-                <div className="mt-6 pt-4 border-t border-[#30363D] flex gap-3">
+                <div className="mt-6 pt-4 border-t border-border flex gap-3">
                   <Button variant="outline" className="border-green-500/50 text-green-500 hover:bg-green-500/10 flex-1">✓ Mark Resolved</Button>
                   <Button variant="outline" className="border-red-500/50 text-red-500 hover:bg-red-500/10 flex-1">↑ Escalate</Button>
-                  <Button variant="outline" className="flex-1 text-[#717182]">↓ Export</Button>
+                  <Button variant="outline" className="flex-1 text-muted-foreground">↓ Export</Button>
                 </div>
               </div>
             )}
@@ -456,23 +456,23 @@ export function Simulation() {
       {/* Section D: Simulation History */}
       <Card>
         <CardHeader 
-          className="cursor-pointer hover:bg-[#30363D]/20 transition-colors rounded-xl" 
+          className="cursor-pointer hover:bg-muted/20 transition-colors rounded-xl" 
           onClick={() => setHistoryOpen(!historyOpen)}
         >
           <div className="flex items-center justify-between">
             <CardTitle className="text-lg">Simulation History</CardTitle>
-            {historyOpen ? <ChevronUp className="h-5 w-5 text-[#717182]" /> : <ChevronDown className="h-5 w-5 text-[#717182]" />}
+            {historyOpen ? <ChevronUp className="h-5 w-5 text-muted-foreground" /> : <ChevronDown className="h-5 w-5 text-muted-foreground" />}
           </div>
         </CardHeader>
         
         {historyOpen && (
           <CardContent className="pt-0 pb-4">
             {history.length === 0 ? (
-              <p className="text-[#717182] text-center py-4 text-sm">No history available</p>
+              <p className="text-muted-foreground text-center py-4 text-sm">No history available</p>
             ) : (
               <div className="overflow-x-auto mt-2">
                 <table className="w-full text-sm text-left">
-                  <thead className="text-xs text-[#717182] uppercase bg-[#0D1117] border-y border-[#30363D]">
+                  <thead className="text-xs text-muted-foreground uppercase bg-background border-y border-border">
                     <tr>
                       <th className="px-4 py-2 font-medium">Started At</th>
                       <th className="px-4 py-2 font-medium">Type</th>
@@ -482,14 +482,14 @@ export function Simulation() {
                   </thead>
                   <tbody>
                     {history.map((row, i) => (
-                      <tr key={i} className="border-b border-[#30363D] hover:bg-[#30363D]/30 transition-colors">
-                        <td className="px-4 py-2 text-[#e9ebef] font-mono text-xs">{row.time}</td>
+                      <tr key={i} className="border-b border-border hover:bg-muted/30 transition-colors">
+                        <td className="px-4 py-2 text-foreground font-mono text-xs">{row.time}</td>
                         <td className="px-4 py-2">
-                          <Badge variant="outline" className="border-[#717182] text-[#717182]">{row.type}</Badge>
+                          <Badge variant="outline" className="border-[#717182] text-muted-foreground">{row.type}</Badge>
                         </td>
                         <td className="px-4 py-2 text-white capitalize">{row.mode}</td>
                         <td className="px-4 py-2 text-right">
-                          <span className={`text-xs ${row.status === 'Running' ? 'text-green-500' : 'text-[#717182]'}`}>{row.status}</span>
+                          <span className={`text-xs ${row.status === 'Running' ? 'text-green-500' : 'text-muted-foreground'}`}>{row.status}</span>
                         </td>
                       </tr>
                     ))}

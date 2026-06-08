@@ -1,6 +1,7 @@
 import { Link, useLocation } from 'react-router';
-import { Shield, LayoutDashboard, AlertTriangle, Zap, Wifi, WifiOff, Brain, Settings, LogIn } from 'lucide-react';
+import { Shield, LayoutDashboard, AlertTriangle, Zap, Wifi, WifiOff, Brain, Settings, LogIn, Sun, Moon } from 'lucide-react';
 import { useWebSocketData } from '../../contexts/WebSocketContext';
+import { useTheme } from '../../contexts/ThemeContext';
 
 const NAV = [
   { to: '/',           label: 'Dashboard',    icon: LayoutDashboard },
@@ -12,28 +13,21 @@ const NAV = [
 export function TopNav() {
   const { pathname } = useLocation();
   const { connected, allAlerts } = useWebSocketData();
+  const { theme, setTheme } = useTheme();
   const threatCount = allAlerts.filter(
     a => a.verdict === 'ATTACK' || a.verdict === 'ZERO_DAY'
   ).length;
 
   return (
-    <nav
-      className="fixed top-0 inset-x-0 z-50 h-16 flex items-center px-6"
-      style={{
-        background: 'rgba(13,17,23,0.92)',
-        backdropFilter: 'blur(16px)',
-        WebkitBackdropFilter: 'blur(16px)',
-        borderBottom: '1px solid rgba(48,54,61,0.8)',
-      }}
-    >
+    <nav className="fixed top-0 inset-x-0 z-50 h-16 flex items-center px-6 bg-background/90 backdrop-blur-md border-b border-border transition-colors duration-200">
       {/* Logo */}
       <Link to="/" className="flex items-center gap-2.5 mr-8 shrink-0 select-none">
         <Shield
-          className="w-7 h-7 text-[#E3000F]"
+          className="w-7 h-7 text-destructive"
           style={{ filter: 'drop-shadow(0 0 8px rgba(227,0,15,0.7))' }}
         />
-        <span className="font-bold text-[15px] tracking-tight text-[#F0F6FC]">
-          Cyber<span className="text-[#E3000F]">AI</span>
+        <span className="font-bold text-[15px] tracking-tight text-foreground">
+          Cyber<span className="text-destructive">AI</span>
         </span>
       </Link>
 
@@ -47,15 +41,11 @@ export function TopNav() {
             <Link
               key={to}
               to={to}
-              className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-all duration-200"
-              style={active ? {
-                background: 'rgba(227,0,15,0.1)',
-                color: '#E3000F',
-                border: '1px solid rgba(227,0,15,0.25)',
-              } : {
-                color: '#8B949E',
-                border: '1px solid transparent',
-              }}
+              className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-all duration-200 ${
+                active 
+                  ? "bg-destructive/10 text-destructive border border-destructive/25" 
+                  : "text-muted-foreground border border-transparent hover:text-foreground"
+              }`}
             >
               <Icon className="w-4 h-4" />
               {label}
@@ -87,21 +77,29 @@ export function TopNav() {
         >
           {connected
             ? <Wifi className="w-3.5 h-3.5 text-emerald-400" />
-            : <WifiOff className="w-3.5 h-3.5 text-[#8B949E]" />
+            : <WifiOff className="w-3.5 h-3.5 text-muted-foreground" />
           }
-          <span className={`text-xs font-medium ${connected ? 'text-emerald-400' : 'text-[#8B949E]'}`}>
+          <span className={`text-xs font-medium ${connected ? 'text-emerald-400' : 'text-muted-foreground'}`}>
             {connected ? 'Live' : 'Demo'}
           </span>
         </div>
 
+        {/* Theme toggle */}
+        <button
+          onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
+          className="flex items-center justify-center w-8 h-8 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted transition-all duration-200"
+        >
+          {theme === 'dark' ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
+        </button>
+
         {/* Settings icon */}
         <Link
           to="/settings"
-          className="flex items-center justify-center w-8 h-8 rounded-lg transition-all duration-200"
-          style={pathname === '/settings'
-            ? { background: 'rgba(227,0,15,0.1)', color: '#E3000F', border: '1px solid rgba(227,0,15,0.25)' }
-            : { color: '#8B949E', border: '1px solid transparent' }
-          }
+          className={`flex items-center justify-center w-8 h-8 rounded-lg transition-all duration-200 ${
+            pathname === '/settings'
+              ? 'bg-destructive/10 text-destructive border border-destructive/25'
+              : 'text-muted-foreground border border-transparent hover:text-foreground'
+          }`}
         >
           <Settings className="w-4 h-4" />
         </Link>
@@ -109,11 +107,11 @@ export function TopNav() {
         {/* Login icon */}
         <Link
           to="/login"
-          className="flex items-center justify-center w-8 h-8 rounded-lg transition-all duration-200"
-          style={pathname === '/login'
-            ? { background: 'rgba(77,171,247,0.1)', color: '#4DABF7', border: '1px solid rgba(77,171,247,0.25)' }
-            : { color: '#8B949E', border: '1px solid transparent' }
-          }
+          className={`flex items-center justify-center w-8 h-8 rounded-lg transition-all duration-200 ${
+            pathname === '/login'
+              ? 'bg-primary/10 text-primary border border-primary/25'
+              : 'text-muted-foreground border border-transparent hover:text-foreground'
+          }`}
         >
           <LogIn className="w-4 h-4" />
         </Link>

@@ -217,13 +217,13 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "get_recent_alerts",
-            "description": "Fetch recent alerts from HDFS and/or Network pipelines from the alert buffer",
+            "description": "Fetch recent alerts from HDFS, SSH, UEBA, and/or Network pipelines from the alert buffer",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "source": {
                         "type": "string",
-                        "enum": ["SSH", "UEBA", "Network", "ALL"],
+                        "enum": ["HDFS", "SSH", "UEBA", "Network", "ALL"],
                         "description": "Which pipeline to fetch from"
                     },
                     "limit": {
@@ -325,7 +325,7 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "get_database_stats",
-            "description": "Get summary statistics of alerts in the SIEM database.",
+            "description": "Get summary statistics of alerts in the SIEM database, including counts by severity and source (e.g. Network, HDFS, SSH, UEBA).",
             "parameters": {"type": "object", "properties": {}}
         }
     }
@@ -425,10 +425,17 @@ async def run_tool(name: str, inputs: dict, app_state):
             try:
                 import database
                 alerts = database.get_alerts()
-                stats = {"total_alerts": len(alerts), "critical": 0, "high": 0, "medium": 0, "low": 0}
+                stats = {
+                    "total_alerts": len(alerts), 
+                    "severities": {"critical": 0, "high": 0, "medium": 0, "low": 0},
+                    "sources": {}
+                }
                 for a in alerts:
                     sev = a.get("severity", "low")
-                    if sev in stats: stats[sev] += 1
+                    if sev in stats["severities"]: stats["severities"][sev] += 1
+                    src = a.get("source", "Unknown")
+                    if src not in stats["sources"]: stats["sources"][src] = 0
+                    stats["sources"][src] += 1
                 return json.dumps(stats)
             except Exception as e:
                 return json.dumps({"error": str(e)})
@@ -671,11 +678,15 @@ async def manual_analyze(req: AnalyzeManualRequest, request: Request):
                 db_path = os.path.join(os.path.dirname(__file__), "cyberai.db")
                 conn = sqlite3.connect(db_path)
                 cursor = conn.cursor()
-                cursor.execute("SELECT date, hostname, process, message FROM ssh_logs WHERE src_ip = ? LIMIT 30", (ip,))
-                rows = cursor.fetchall()
-                conn.close()
-                if rows:
-                    gathered_data_summary = "\n\nRAW SSH LOGS:\n" + "\n".join([f"{r[0]} {r[1]} {r[2]}: {r[3]}" for r in rows])
+                try:
+                    cursor.execute("SELECT date, hostname, process, message FROM ssh_logs WHERE src_ip = ? LIMIT 30", (ip,))
+                    rows = cursor.fetchall()
+                    if rows:
+                        gathered_data_summary = "\n\nRAW SSH LOGS:\n" + "\n".join([f"{r[0]} {r[1]} {r[2]}: {r[3]}" for r in rows])
+                except sqlite3.OperationalError:
+                    pass
+                finally:
+                    conn.close()
                     
         elif source in ("UEBA", "insider_threat"):
             user_id = alert.get("user_id")
@@ -684,11 +695,15 @@ async def manual_analyze(req: AnalyzeManualRequest, request: Request):
                 db_path = os.path.join(os.path.dirname(__file__), "cyberai.db")
                 conn = sqlite3.connect(db_path)
                 cursor = conn.cursor()
-                cursor.execute("SELECT date, log_type, activity, filename, email_to, url FROM ueba_logs WHERE user = ? LIMIT 30", (user_id,))
-                rows = cursor.fetchall()
-                conn.close()
-                if rows:
-                    gathered_data_summary = "\n\nRAW UEBA LOGS:\n" + "\n".join([str(r) for r in rows])
+                try:
+                    cursor.execute("SELECT date, log_type, activity, filename, email_to, url FROM ueba_logs WHERE user = ? LIMIT 30", (user_id,))
+                    rows = cursor.fetchall()
+                    if rows:
+                        gathered_data_summary = "\n\nRAW UEBA LOGS:\n" + "\n".join([str(r) for r in rows])
+                except sqlite3.OperationalError:
+                    pass
+                finally:
+                    conn.close()
                     
         else:
             # Network flows
@@ -805,7 +820,7 @@ RULES:
 1. Always use tools to verify information before making claims about the SIEM state.
 2. If asked about general security (CVEs, MITRE), use `search_knowledge_base`.
 3. If asked about current alerts or stats, use `get_database_stats` or `get_recent_alerts`.
-4. If investigating an IP or User, use `get_ssh_auth_session` or `get_ueba_user_behavior`.
+4. If investigating an IP or User, use `get_ssh_auth_session` or `get_ueba_user_behavior`. If investigating HDFS, rely on the alert data from `get_recent_alerts`.
 5. Keep your answers concise, professional, and directly address the user's question.
 6. Do NOT use `create_incident` unless explicitly asked to generate an incident report.
 """

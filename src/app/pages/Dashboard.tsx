@@ -33,7 +33,7 @@ function SeverityDot({ severity }: { severity: string }) {
   return (
     <span className="inline-flex items-center gap-1.5">
       <span className="w-1.5 h-1.5 rounded-full" style={{ background: c[severity] ?? '#8B949E' }} />
-      <span className="text-[#8B949E] text-xs capitalize">{severity}</span>
+      <span className="text-muted-foreground text-xs capitalize">{severity}</span>
     </span>
   );
 }
@@ -43,7 +43,7 @@ const ChartTooltip = ({ active, payload, label }: { active?: boolean; payload?: 
   if (!active || !payload?.length) return null;
   return (
     <div className="glass-card rounded-lg px-3 py-2 text-xs">
-      <p className="text-[#8B949E] mb-1">{label}</p>
+      <p className="text-muted-foreground mb-1">{label}</p>
       {payload.map(e => (
         <p key={e.name} style={{ color: e.color }}>{e.name}: <strong>{e.value}</strong></p>
       ))}
@@ -54,7 +54,7 @@ const ChartTooltip = ({ active, payload, label }: { active?: boolean; payload?: 
 /* ─── Main component ─── */
 export function Dashboard() {
   const navigate = useNavigate();
-  const { allAlerts, sshAlerts, uebaAlerts, networkAlerts } = useWebSocketData();
+  const { allAlerts, sshAlerts, uebaAlerts, networkAlerts, hdfsAlerts } = useWebSocketData();
   const prevCountRef = useRef(0);
 
   const attackAlerts  = allAlerts.filter(a => a.verdict === 'ATTACK');
@@ -118,8 +118,8 @@ export function Dashboard() {
         transition={{ duration: 0.4 }}
         className="mb-8"
       >
-        <h1 className="text-[#F0F6FC] text-2xl font-bold tracking-tight">Command Center</h1>
-        <p className="text-[#8B949E] text-sm mt-1">
+        <h1 className="text-foreground text-2xl font-bold tracking-tight">Command Center</h1>
+        <p className="text-muted-foreground text-sm mt-1">
           Real-time network threat intelligence — <span className="text-[#E3000F]">CyberAI</span>
         </p>
       </motion.div>
@@ -127,12 +127,14 @@ export function Dashboard() {
       {/* Metric cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
         <MetricCard title="Total Analyzed Logs" value={allAlerts.length.toLocaleString()} icon={Database} delay={0}>
-          <div className="flex gap-2 text-[10px] text-[#8B949E] flex-wrap">
+          <div className="flex gap-2 text-[10px] text-muted-foreground flex-wrap">
             <span>SSH {sshAlerts.length}</span>
             <span className="opacity-40">·</span>
             <span>UEBA {uebaAlerts.length}</span>
             <span className="opacity-40">·</span>
             <span>Net {networkAlerts.length}</span>
+            <span className="opacity-40">·</span>
+            <span>HDFS {hdfsAlerts.length}</span>
           </div>
         </MetricCard>
 
@@ -155,7 +157,7 @@ export function Dashboard() {
         />
 
         <MetricCard title="System Health" value="94%" icon={Activity} variant="success" delay={0.21}>
-          <div className="h-1.5 rounded-full overflow-hidden" style={{ background: 'rgba(48,54,61,0.6)' }}>
+          <div className="h-1.5 rounded-full overflow-hidden bg-muted">
             <motion.div
               initial={{ width: 0 }}
               animate={{ width: '94%' }}
@@ -177,10 +179,10 @@ export function Dashboard() {
         >
           <div className="flex items-center justify-between mb-5">
             <div>
-              <h2 className="text-[#F0F6FC] font-semibold text-sm">Network Traffic vs Threat Volume</h2>
-              <p className="text-[#8B949E] text-xs mt-0.5">Last 24 hours — WebSocket stream</p>
+              <h2 className="text-foreground font-semibold text-sm">Network Traffic vs Threat Volume</h2>
+              <p className="text-muted-foreground text-xs mt-0.5">Last 24 hours — WebSocket stream</p>
             </div>
-            <div className="flex items-center gap-4 text-[10px] text-[#8B949E]">
+            <div className="flex items-center gap-4 text-[10px] text-muted-foreground">
               <span className="flex items-center gap-1.5">
                 <span className="w-3 h-px rounded bg-[#4DABF7] inline-block" />Traffic
               </span>
@@ -208,18 +210,19 @@ export function Dashboard() {
           transition={{ duration: 0.5, delay: 0.35 }}
           className="glass-card rounded-xl p-5"
         >
-          <h2 className="text-[#F0F6FC] font-semibold text-sm mb-5">Source Distribution</h2>
+          <h2 className="text-foreground font-semibold text-sm mb-5">Source Distribution</h2>
           {[
+            { label: 'HDFS System',count: hdfsAlerts.length,    color: '#D29922' },
             { label: 'SSH Auth',  count: sshAlerts.length,     color: '#4DABF7' },
             { label: 'UEBA',      count: uebaAlerts.length,    color: '#9775FA' },
             { label: 'Network',   count: networkAlerts.length, color: '#51CF66' },
           ].map(({ label, count, color }) => (
             <div key={label} className="mb-4">
               <div className="flex justify-between text-xs mb-1.5">
-                <span className="text-[#8B949E]">{label}</span>
-                <span className="text-[#F0F6FC] font-medium tabular-nums">{count.toLocaleString()}</span>
+                <span className="text-muted-foreground">{label}</span>
+                <span className="text-foreground font-medium tabular-nums">{count.toLocaleString()}</span>
               </div>
-              <div className="h-1.5 rounded-full overflow-hidden" style={{ background: 'rgba(48,54,61,0.6)' }}>
+              <div className="h-1.5 rounded-full overflow-hidden bg-muted">
                 <motion.div
                   initial={{ width: 0 }}
                   animate={{ width: allAlerts.length > 0 ? `${(count / allAlerts.length * 100).toFixed(1)}%` : '0%' }}
@@ -231,9 +234,9 @@ export function Dashboard() {
             </div>
           ))}
 
-          <div className="mt-6 pt-4" style={{ borderTop: '1px solid rgba(48,54,61,0.7)' }}>
+          <div className="mt-6 pt-4 border-t border-border">
             <div className="flex justify-between text-xs mb-3">
-              <span className="text-[#8B949E]">Attack Rate</span>
+              <span className="text-muted-foreground">Attack Rate</span>
               <span className="text-[#E3000F] font-bold">
                 {allAlerts.length > 0
                   ? ((attackAlerts.length / allAlerts.length) * 100).toFixed(1)
@@ -241,7 +244,7 @@ export function Dashboard() {
               </span>
             </div>
             <div className="flex justify-between text-xs">
-              <span className="text-[#8B949E]">Zero-Day Rate</span>
+              <span className="text-muted-foreground">Zero-Day Rate</span>
               <span className="text-amber-400 font-bold">
                 {allAlerts.length > 0
                   ? ((zeroDayAlerts.length / allAlerts.length) * 100).toFixed(1)
@@ -259,14 +262,14 @@ export function Dashboard() {
         transition={{ duration: 0.5, delay: 0.42 }}
         className="glass-card rounded-xl overflow-hidden"
       >
-        <div className="flex items-center justify-between px-5 py-4" style={{ borderBottom: '1px solid rgba(48,54,61,0.7)' }}>
+        <div className="flex items-center justify-between px-5 py-4 border-b border-border">
           <div>
-            <h2 className="text-[#F0F6FC] font-semibold text-sm">Recent Critical Incidents</h2>
-            <p className="text-[#8B949E] text-xs mt-0.5">Latest ATTACK &amp; ZERO-DAY verdicts from live feed</p>
+            <h2 className="text-foreground font-semibold text-sm">Recent Critical Incidents</h2>
+            <p className="text-muted-foreground text-xs mt-0.5">Latest ATTACK &amp; ZERO-DAY verdicts from live feed</p>
           </div>
           <button
             onClick={() => navigate('/alerts')}
-            className="flex items-center gap-1 text-xs text-[#8B949E] hover:text-[#E3000F] transition-colors"
+            className="flex items-center gap-1 text-xs text-muted-foreground hover:text-[#E3000F] transition-colors"
           >
             View all <ChevronRight className="w-3 h-3" />
           </button>
@@ -275,16 +278,16 @@ export function Dashboard() {
         {recentIncidents.length === 0 ? (
           <div className="px-5 py-12 text-center">
             <Activity className="w-8 h-8 text-[#30363D] mx-auto mb-3" />
-            <p className="text-[#8B949E] text-sm">No critical incidents — system nominal</p>
-            <p className="text-[#8B949E]/50 text-xs mt-1">Waiting for WebSocket feed…</p>
+            <p className="text-muted-foreground text-sm">No critical incidents — system nominal</p>
+            <p className="text-muted-foreground/50 text-xs mt-1">Waiting for WebSocket feed…</p>
           </div>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full">
               <thead>
-                <tr style={{ borderBottom: '1px solid rgba(48,54,61,0.5)' }}>
+                <tr className="border-b border-border">
                   {['Time', 'ID', 'Source', 'Title', 'Verdict', 'Severity', 'Confidence'].map(h => (
-                    <th key={h} className="px-4 py-3 text-left text-[#8B949E] text-xs font-medium">{h}</th>
+                    <th key={h} className="px-4 py-3 text-left text-muted-foreground text-xs font-medium">{h}</th>
                   ))}
                 </tr>
               </thead>
@@ -293,13 +296,12 @@ export function Dashboard() {
                   <tr
                     key={alert.id}
                     onClick={() => navigate(`/alerts/${alert.id}`, { state: { alert } })}
-                    className="cursor-pointer transition-colors row-attack"
-                    style={{ borderBottom: '1px solid rgba(48,54,61,0.3)' }}
+                    className="cursor-pointer transition-colors border-b border-border/50 hover:bg-muted/30"
                   >
-                    <td className="px-4 py-3 text-[#8B949E] text-xs terminal-font">{alert.time}</td>
-                    <td className="px-4 py-3 text-[#8B949E] text-xs terminal-font">{alert.id}</td>
-                    <td className="px-4 py-3 text-[#F0F6FC] text-xs">{alert.source}</td>
-                    <td className="px-4 py-3 text-[#F0F6FC] text-xs max-w-[200px] truncate">{alert.title}</td>
+                    <td className="px-4 py-3 text-muted-foreground text-xs terminal-font">{alert.time}</td>
+                    <td className="px-4 py-3 text-muted-foreground text-xs terminal-font">{alert.id}</td>
+                    <td className="px-4 py-3 text-foreground text-xs">{alert.source}</td>
+                    <td className="px-4 py-3 text-foreground text-xs max-w-[200px] truncate">{alert.title}</td>
                     <td className="px-4 py-3"><VerdictBadge verdict={alert.verdict} /></td>
                     <td className="px-4 py-3"><SeverityDot severity={alert.severity} /></td>
                     <td className="px-4 py-3 text-xs terminal-font">

@@ -57,7 +57,7 @@ const CustomTooltip = ({ active, payload }: { active?: boolean; payload?: { payl
   const { full, score } = payload[0].payload;
   return (
     <div className="glass-card rounded-lg px-3 py-2 text-xs">
-      <p className="text-[#8B949E]">{full}</p>
+      <p className="text-muted-foreground">{full}</p>
       <p className="text-[#E3000F] font-semibold">{score}</p>
     </div>
   );
@@ -77,7 +77,7 @@ export function MitreRadar({ technique, techniqueId }: MitreRadarProps) {
               {techniqueId}
             </span>
           )}
-          {technique && <span className="text-[#8B949E] text-xs">{technique}</span>}
+          {technique && <span className="text-muted-foreground text-xs">{technique}</span>}
         </div>
       )}
       <ResponsiveContainer width="100%" height={220}>

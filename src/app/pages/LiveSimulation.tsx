@@ -37,7 +37,7 @@ function TerminalFeed({
           <span className="w-2.5 h-2.5 rounded-full bg-amber-400/50" />
           <span className="w-2.5 h-2.5 rounded-full bg-emerald-400/50" />
         </span>
-        <span className="text-[#8B949E] text-xs terminal-font ml-1">{title}</span>
+        <span className="text-muted-foreground text-xs terminal-font ml-1">{title}</span>
         <span className="ml-auto w-1.5 h-3 bg-[#8B949E] animate-blink rounded-sm" />
       </div>
       {/* Feed body */}
@@ -91,12 +91,12 @@ function ControlCard({
             <Icon className="w-4 h-4" style={{ color: ctrl.active ? '#E3000F' : '#8B949E' }} />
           </div>
           <div>
-            <p className="text-[#F0F6FC] text-sm font-semibold">{title}</p>
-            <p className="text-[#8B949E] text-[10px]">{ctrl.active ? 'Streaming…' : 'Idle'}</p>
+            <p className="text-foreground text-sm font-semibold">{title}</p>
+            <p className="text-muted-foreground text-[10px]">{ctrl.active ? 'Streaming…' : 'Idle'}</p>
           </div>
         </div>
         <div className="flex items-center gap-2">
-          {ctrl.loading && <Loader2 className="w-3.5 h-3.5 text-[#8B949E] animate-spin" />}
+          {ctrl.loading && <Loader2 className="w-3.5 h-3.5 text-muted-foreground animate-spin" />}
           <Switch
             checked={ctrl.active}
             onCheckedChange={onToggle}
@@ -108,8 +108,8 @@ function ControlCard({
       <div className="space-y-3">
         <div>
           <div className="flex justify-between text-xs mb-1.5">
-            <span className="text-[#8B949E]">Log delay</span>
-            <span className="text-[#F0F6FC] terminal-font">{ctrl.delay}ms</span>
+            <span className="text-muted-foreground">Log delay</span>
+            <span className="text-foreground terminal-font">{ctrl.delay}ms</span>
           </div>
           <Slider
             value={[ctrl.delay]}
@@ -127,7 +127,7 @@ function ControlCard({
 
 /* ─── Main page ─── */
 export function LiveSimulation() {
-  const { allAlerts, sshAlerts, uebaAlerts, networkAlerts } = useWebSocketData();
+  const { allAlerts, sshAlerts, uebaAlerts, networkAlerts, hdfsAlerts } = useWebSocketData();
 
   const attackAlerts  = allAlerts.filter(a => a.verdict === 'ATTACK' || a.verdict === 'ZERO_DAY');
   const prevLenRef    = useRef(0);
@@ -148,6 +148,7 @@ export function LiveSimulation() {
   const [ssh, setSsh]         = useState<SimControl>({ active: true,  delay: 500,  loading: false });
   const [ueba, setUeba]       = useState<SimControl>({ active: true,  delay: 800,  loading: false });
   const [net, setNet]         = useState<SimControl>({ active: true,  delay: 300,  loading: false });
+  const [hdfs, setHdfs]       = useState<SimControl>({ active: true,  delay: 500,  loading: false });
   const [scenario, setScenario] = useState('mixed');
 
   // Sync actual backend state on mount
@@ -160,12 +161,13 @@ export function LiveSimulation() {
         if (data.ssh)     setSsh(p  => ({ ...p, active: data.ssh.active  ?? p.active  }));
         if (data.ueba)    setUeba(p => ({ ...p, active: data.ueba.active  ?? p.active  }));
         if (data.network) setNet(p  => ({ ...p, active: data.network.active ?? p.active }));
+        if (data.hdfs)    setHdfs(p => ({ ...p, active: data.hdfs.active ?? p.active }));
       })
       .catch(() => { /* backend not ready yet — keep defaults */ });
   }, []);
 
   async function handleToggle(
-    type: 'ssh' | 'ueba' | 'network',
+    type: 'ssh' | 'ueba' | 'network' | 'hdfs',
     next: boolean,
     setter: React.Dispatch<React.SetStateAction<SimControl>>,
     delay: number
@@ -204,8 +206,8 @@ export function LiveSimulation() {
       {/* Header */}
       <motion.div initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4 }} className="mb-6 flex justify-between items-start">
         <div>
-          <h1 className="text-[#F0F6FC] text-2xl font-bold tracking-tight">Live Simulation</h1>
-          <p className="text-[#8B949E] text-sm mt-1">
+          <h1 className="text-foreground text-2xl font-bold tracking-tight">Live Simulation</h1>
+          <p className="text-muted-foreground text-sm mt-1">
             Inject attacks into the ML pipeline and watch the AI classify them in real-time
           </p>
         </div>
@@ -240,9 +242,9 @@ export function LiveSimulation() {
           style={{ borderBottom: '1px solid rgba(48,54,61,0.6)' }}>
           <div className="flex items-center gap-2.5">
             <div className="w-2 h-2 rounded-full bg-[#E3000F] animate-pulse-red" />
-            <span className="text-[#F0F6FC] font-semibold text-sm">AI Data Pipeline — WebGL Inference Core</span>
+            <span className="text-foreground font-semibold text-sm">AI Data Pipeline — WebGL Inference Core</span>
           </div>
-          <div className="flex items-center gap-4 text-[10px] text-[#8B949E]">
+          <div className="flex items-center gap-4 text-[10px] text-muted-foreground">
             <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-[#A8D5FF]/70 inline-block" /> BENIGN</span>
             <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-[#E3000F] inline-block" /> ATTACK</span>
             <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-[#9775FA] inline-block" /> UEBA</span>
@@ -251,17 +253,18 @@ export function LiveSimulation() {
         <div style={{ background: 'rgba(9,12,16,0.6)' }}>
           <NetworkCanvas alerts={allAlerts} height={300} />
         </div>
-        <div className="px-5 py-2.5 flex items-center gap-6 text-[10px] text-[#8B949E]"
+        <div className="px-5 py-2.5 flex items-center gap-6 text-[10px] text-muted-foreground"
           style={{ borderTop: '1px solid rgba(48,54,61,0.5)', background: 'rgba(13,17,23,0.4)' }}>
           <span>SSH Auth <span className="text-[#4DABF7] font-semibold">{sshAlerts.length}</span></span>
           <span>UEBA <span className="text-[#9775FA] font-semibold">{uebaAlerts.length}</span></span>
           <span>Network <span className="text-[#51CF66] font-semibold">{networkAlerts.length}</span></span>
+          <span>HDFS <span className="text-[#D29922] font-semibold">{hdfsAlerts.length}</span></span>
           <span className="ml-auto">Particles represent individual log inferences flowing through the AI core</span>
         </div>
       </motion.div>
 
       {/* Control panel */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
         <ControlCard
           title="SSH Replay" icon={Play} type="ssh" ctrl={ssh}
           onToggle={v => handleToggle('ssh', v, setSsh, ssh.delay)}
@@ -273,18 +276,23 @@ export function LiveSimulation() {
           onDelayChange={v => setUeba(p => ({ ...p, delay: v }))}
         />
         <ControlCard
+          title="HDFS Replay" icon={Play} type="hdfs" ctrl={hdfs}
+          onToggle={v => handleToggle('hdfs', v, setHdfs, hdfs.delay)}
+          onDelayChange={v => setHdfs(p => ({ ...p, delay: v }))}
+        />
+        <ControlCard
           title="Network Scenarios" icon={Globe} type="network" ctrl={net}
           onToggle={v => handleToggle('network', v, setNet, net.delay)}
           onDelayChange={v => setNet(p => ({ ...p, delay: v }))}
           extra={
             <Select value={scenario} onValueChange={setScenario}>
               <SelectTrigger
-                className="text-xs h-8 border-[#30363D] bg-[#0D1117] text-[#8B949E]"
+                className="text-xs h-8 border-border bg-background text-muted-foreground"
                 disabled={!net.active}
               >
                 <SelectValue />
               </SelectTrigger>
-              <SelectContent className="bg-[#161B22] border-[#30363D] text-[#F0F6FC]">
+              <SelectContent className="bg-card border-border text-foreground">
                 {[
                   { value: 'normal',   label: 'Normal Traffic' },
                   { value: 'ddos',     label: 'DDoS Flood' },
@@ -305,7 +313,7 @@ export function LiveSimulation() {
       {/* Live terminal feeds */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.5 }}>
-          <p className="text-[#8B949E] text-xs font-medium mb-2 uppercase tracking-widest">Raw Log Feed</p>
+          <p className="text-muted-foreground text-xs font-medium mb-2 uppercase tracking-widest">Raw Log Feed</p>
           <TerminalFeed
             title="raw_logs.stream"
             lines={feedLines.map(formatRaw)}
@@ -313,7 +321,7 @@ export function LiveSimulation() {
           />
         </motion.div>
         <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.6 }}>
-          <p className="text-[#8B949E] text-xs font-medium mb-2 uppercase tracking-widest">Verdict Feed</p>
+          <p className="text-muted-foreground text-xs font-medium mb-2 uppercase tracking-widest">Verdict Feed</p>
           <TerminalFeed
             title="ai_verdicts.stream"
             lines={feedLines.map(formatVerdict)}

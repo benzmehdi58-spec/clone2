@@ -7,6 +7,7 @@ export interface WebSocketData {
   sshAlerts: Alert[];
   uebaAlerts: Alert[];
   networkAlerts: Alert[];
+  hdfsAlerts: Alert[];
 }
 
 const WS_URL = import.meta.env.VITE_WS_URL || 'ws://localhost:8000/ws/alerts';
@@ -93,5 +94,6 @@ export function useWebSocket(): WebSocketData {
     sshAlerts: allAlerts.filter(a => a.source === 'SSH' || a.source === 'auth_log'),
     uebaAlerts: allAlerts.filter(a => a.source === 'UEBA' || a.source === 'insider_threat'),
     networkAlerts: allAlerts.filter(a => a.source === 'Network' || a.source === 'network'),
+    hdfsAlerts: allAlerts.filter(a => a.source === 'HDFS' || a.source === 'system'),
   };
 }

@@ -42,34 +42,34 @@ export function Models() {
     <div className="flex flex-col gap-6 max-w-7xl mx-auto pb-10">
       <div>
         <h1 className="text-2xl font-semibold text-white">Model Performance</h1>
-        <p className="text-[#717182] text-sm mt-1">Evaluate and monitor AI detection models.</p>
+        <p className="text-muted-foreground text-sm mt-1">Evaluate and monitor AI detection models.</p>
       </div>
 
-      <div className="flex border-b border-[#30363D]">
+      <div className="flex border-b border-border">
         <button
           className={cn("px-6 py-3 text-sm font-medium border-b-2 transition-colors flex items-center gap-2",
-            activeTab === "system" ? "border-[#D29922] text-[#D29922]" : "border-transparent text-[#717182] hover:text-[#e9ebef]")}
+            activeTab === "system" ? "border-[#D29922] text-[#D29922]" : "border-transparent text-muted-foreground hover:text-foreground")}
           onClick={() => setActiveTab("system")}
         >
           <Server className="h-4 w-4" /> System Model (HDFS) — Live
         </button>
         <button
           className={cn("px-6 py-3 text-sm font-medium border-b-2 transition-colors flex items-center gap-2",
-            activeTab === "network" ? "border-[#2F81F7] text-[#2F81F7]" : "border-transparent text-[#717182] hover:text-[#e9ebef]")}
+            activeTab === "network" ? "border-[#2F81F7] text-[#2F81F7]" : "border-transparent text-muted-foreground hover:text-foreground")}
           onClick={() => setActiveTab("network")}
         >
           <Network className="h-4 w-4" /> Network Model (CIC-IDS2017) — Live
         </button>
         <button
           className={cn("px-6 py-3 text-sm font-medium border-b-2 transition-colors flex items-center gap-2",
-            activeTab === "auth" ? "border-[#8957E5] text-[#8957E5]" : "border-transparent text-[#717182] hover:text-[#e9ebef]")}
+            activeTab === "auth" ? "border-[#8957E5] text-[#8957E5]" : "border-transparent text-muted-foreground hover:text-foreground")}
           onClick={() => setActiveTab("auth")}
         >
           <Key className="h-4 w-4" /> Auth Model (SSH) — 3% Holdout
         </button>
         <button
           className={cn("px-6 py-3 text-sm font-medium border-b-2 transition-colors flex items-center gap-2",
-            activeTab === "ueba" ? "border-[#F85149] text-[#F85149]" : "border-transparent text-[#717182] hover:text-[#e9ebef]")}
+            activeTab === "ueba" ? "border-[#F85149] text-[#F85149]" : "border-transparent text-muted-foreground hover:text-foreground")}
           onClick={() => setActiveTab("ueba")}
         >
           <User className="h-4 w-4" /> Insider Threat (UEBA) — 3% Holdout
@@ -77,7 +77,7 @@ export function Models() {
       </div>
 
       {isLoading || !data ? (
-        <div className="flex justify-center py-20"><Loader2 className="h-8 w-8 animate-spin text-[#717182]" /></div>
+        <div className="flex justify-center py-20"><Loader2 className="h-8 w-8 animate-spin text-muted-foreground" /></div>
       ) : (
         <>
           {/* Metric cards */}
@@ -87,7 +87,7 @@ export function Models() {
                 <CardContent className="p-6">
                   <div className="flex justify-between items-start">
                     <div>
-                      <p className="text-sm font-medium text-[#717182] uppercase tracking-wider">{m.label}</p>
+                      <p className="text-sm font-medium text-muted-foreground uppercase tracking-wider">{m.label}</p>
                       <h3 className="text-3xl font-bold font-mono text-white mt-2">{m.val}</h3>
                     </div>
                     <div className={cn("flex items-center text-xs font-medium", m.up ? "text-[#3FB950]" : "text-[#F85149]")}>
@@ -110,9 +110,9 @@ export function Models() {
                       <AlertTriangle className="h-6 w-6 text-[#D29922]" />
                     </div>
                     <div>
-                      <p className="text-xs text-[#717182] uppercase tracking-wider">Zero-Day Rate</p>
+                      <p className="text-xs text-muted-foreground uppercase tracking-wider">Zero-Day Rate</p>
                       <p className="text-2xl font-bold font-mono text-[#D29922]">{data.zeroDay.rate}%</p>
-                      <p className="text-xs text-[#717182] mt-0.5">{fmt(data.zeroDay.count)} flagged flows</p>
+                      <p className="text-xs text-muted-foreground mt-0.5">{fmt(data.zeroDay.count)} flagged flows</p>
                     </div>
                   </CardContent>
                 </Card>
@@ -123,9 +123,9 @@ export function Models() {
                       <Shield className="h-6 w-6 text-[#2F81F7]" />
                     </div>
                     <div>
-                      <p className="text-xs text-[#717182] uppercase tracking-wider">Macro F1 (All Classes)</p>
+                      <p className="text-xs text-muted-foreground uppercase tracking-wider">Macro F1 (All Classes)</p>
                       <p className="text-2xl font-bold font-mono text-[#2F81F7]">{((data.macroF1 ?? 0) * 100).toFixed(1)}%</p>
-                      <p className="text-xs text-[#717182] mt-0.5">Target &gt; 85%</p>
+                      <p className="text-xs text-muted-foreground mt-0.5">Target &gt; 85%</p>
                     </div>
                   </CardContent>
                 </Card>
@@ -136,9 +136,9 @@ export function Models() {
                       <Network className="h-6 w-6 text-[#3FB950]" />
                     </div>
                     <div>
-                      <p className="text-xs text-[#717182] uppercase tracking-wider">Total Flows Evaluated</p>
+                      <p className="text-xs text-muted-foreground uppercase tracking-wider">Total Flows Evaluated</p>
                       <p className="text-2xl font-bold font-mono text-white">{fmt(data.totalFlows ?? 0)}</p>
-                      <p className="text-xs text-[#717182] mt-0.5">S1 threshold: {data.s1Threshold}</p>
+                      <p className="text-xs text-muted-foreground mt-0.5">S1 threshold: {data.s1Threshold}</p>
                     </div>
                   </CardContent>
                 </Card>
@@ -196,10 +196,10 @@ export function Models() {
               <CardContent className="flex flex-col items-center p-6 gap-3">
                 <div className="grid grid-cols-[80px_1fr_1fr] gap-2 w-full max-w-sm">
                   <div />
-                  <div className="text-center text-xs text-[#717182] font-semibold">Pred Normal</div>
-                  <div className="text-center text-xs text-[#717182] font-semibold">Pred Anomaly</div>
+                  <div className="text-center text-xs text-muted-foreground font-semibold">Pred Normal</div>
+                  <div className="text-center text-xs text-muted-foreground font-semibold">Pred Anomaly</div>
 
-                  <div className="flex items-center text-xs text-[#717182] font-semibold">Actual Normal</div>
+                  <div className="flex items-center text-xs text-muted-foreground font-semibold">Actual Normal</div>
                   <div className="h-24 bg-[#3FB950]/10 border border-[#3FB950]/30 rounded-md flex flex-col items-center justify-center hover:bg-[#3FB950]/20 transition-colors">
                     <span className="text-2xl font-mono font-bold text-white">{fmt(cm.TN)}</span>
                     <span className="text-xs text-[#3FB950] mt-1">True Negative</span>
@@ -209,7 +209,7 @@ export function Models() {
                     <span className="text-xs text-[#F85149] mt-1">False Positive</span>
                   </div>
 
-                  <div className="flex items-center text-xs text-[#717182] font-semibold">Actual Anomaly</div>
+                  <div className="flex items-center text-xs text-muted-foreground font-semibold">Actual Anomaly</div>
                   <div className="h-24 bg-[#F85149]/10 border border-[#F85149]/30 rounded-md flex flex-col items-center justify-center hover:bg-[#F85149]/20 transition-colors">
                     <span className="text-2xl font-mono font-bold text-[#F85149]">{fmt(cm.FN)}</span>
                     <span className="text-xs text-[#F85149] mt-1">False Negative</span>
@@ -225,7 +225,7 @@ export function Models() {
             <Card>
               <CardHeader className="flex flex-row justify-between items-center">
                 <CardTitle>ROC Curve</CardTitle>
-                <span className="text-sm font-bold bg-[#30363D] px-3 py-1 rounded-full text-white">
+                <span className="text-sm font-bold bg-muted px-3 py-1 rounded-full text-white">
                   AUC: {data.auc ?? "—"}
                 </span>
               </CardHeader>
@@ -255,7 +255,7 @@ export function Models() {
               <CardContent>
                 <div className="h-[300px] w-full">
                   <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={data.featureImportance} layout="vertical" margin={{ left: 160, right: 20 }}>
+                    <BarChart data={data.featureImportance ?? []} layout="vertical" margin={{ left: 160, right: 20 }}>
                       <XAxis type="number" hide />
                       <YAxis dataKey="feature" type="category" axisLine={false} tickLine={false}
                         tick={{ fill: COLORS.textPrimary, fontSize: 11 }} width={155} />

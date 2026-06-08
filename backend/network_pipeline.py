@@ -198,7 +198,7 @@ class ThreeStagePipeline:
         s2_conf     = prob_matrix.max(axis=1)
 
         results.loc[attack_mask, "attack_type"]   = s2_names
-        results.loc[attack_mask, "confidence"]    = s2_conf.astype(np.float32)
+        results.loc[attack_mask, "confidence"]    = s2_conf.astype(np.float32) * 100.0
 
         # ── Stage 3 ───────────────────────────────────────────────────────────
         X_atk_t      = torch.tensor(X_atk, dtype=torch.float32).to(self.device)

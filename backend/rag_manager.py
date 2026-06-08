@@ -16,10 +16,12 @@ class RagManager:
         self.initialize_db()
 
     def initialize_db(self):
+        from chromadb.config import Settings
+        settings = Settings(anonymized_telemetry=False)
         if CHROMA_DIR.exists():
-            self.db = Chroma(persist_directory=str(CHROMA_DIR), embedding_function=self.embeddings)
+            self.db = Chroma(persist_directory=str(CHROMA_DIR), embedding_function=self.embeddings, client_settings=settings)
         else:
-            self.db = Chroma(persist_directory=str(CHROMA_DIR), embedding_function=self.embeddings)
+            self.db = Chroma(persist_directory=str(CHROMA_DIR), embedding_function=self.embeddings, client_settings=settings)
             if MITRE_JSON.exists():
                 self.ingest_mitre_data()
 

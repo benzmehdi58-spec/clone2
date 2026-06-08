@@ -28,7 +28,7 @@ function renderInline(text: string, key: string) {
   const parts = text.split(/(\*\*[^*]+\*\*|`[^`]+`|\*[^*]+\*)/g);
   return parts.map((part, i) => {
     if (part.startsWith('**') && part.endsWith('**')) {
-      return <strong key={`${key}-b${i}`} className="text-[#F0F6FC] font-semibold">{part.slice(2, -2)}</strong>;
+      return <strong key={`${key}-b${i}`} className="text-foreground font-semibold">{part.slice(2, -2)}</strong>;
     }
     if (part.startsWith('`') && part.endsWith('`')) {
       return (
@@ -58,8 +58,8 @@ function CodeBlock({ code, lang }: { code: string; lang: string }) {
     <div className="rounded-lg overflow-hidden my-2" style={{ border: '1px solid rgba(48,54,61,0.7)' }}>
       <div className="flex items-center justify-between px-3 py-1.5"
         style={{ background: 'rgba(13,17,23,0.8)', borderBottom: '1px solid rgba(48,54,61,0.5)' }}>
-        <span className="text-[#8B949E] text-[10px] terminal-font">{lang || 'code'}</span>
-        <button onClick={copy} className="text-[#8B949E] hover:text-[#F0F6FC] transition-colors">
+        <span className="text-muted-foreground text-[10px] terminal-font">{lang || 'code'}</span>
+        <button onClick={copy} className="text-muted-foreground hover:text-foreground transition-colors">
           {copied ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
         </button>
       </div>
@@ -116,9 +116,9 @@ function MarkdownMessage({ content }: { content: string }) {
             return;
           }
           if (line.startsWith('### ')) {
-            nodes.push(<p key={`${si}-h3-${li}`} className="text-[#F0F6FC] font-semibold mt-2">{line.slice(4)}</p>);
+            nodes.push(<p key={`${si}-h3-${li}`} className="text-foreground font-semibold mt-2">{line.slice(4)}</p>);
           } else if (line.startsWith('## ')) {
-            nodes.push(<p key={`${si}-h2-${li}`} className="text-[#F0F6FC] font-bold mt-3 text-[13px]">{line.slice(3)}</p>);
+            nodes.push(<p key={`${si}-h2-${li}`} className="text-foreground font-bold mt-3 text-[13px]">{line.slice(3)}</p>);
           } else {
             nodes.push(<p key={`${si}-p-${li}`}>{renderInline(line, `${si}-${li}`)}</p>);
           }
@@ -167,7 +167,7 @@ function MessageBubble({ msg }: { msg: Message }) {
         }
       >
         {isUser
-          ? <User className="w-3.5 h-3.5 text-[#8B949E]" />
+          ? <User className="w-3.5 h-3.5 text-muted-foreground" />
           : <Bot className="w-3.5 h-3.5 text-[#E3000F]" />
         }
       </div>
@@ -191,22 +191,22 @@ function MessageBubble({ msg }: { msg: Message }) {
         }
 
         {!isUser && msg.sources && msg.sources.length > 0 && (
-          <div className="mt-3 pt-2 border-t border-[#30363D]/50 space-y-1.5">
-            <div className="text-[10px] text-[#8B949E] uppercase font-semibold mb-1">Retrieved Sources</div>
+          <div className="mt-3 pt-2 border-t border-border/50 space-y-1.5">
+            <div className="text-[10px] text-muted-foreground uppercase font-semibold mb-1">Retrieved Sources</div>
             {msg.sources.map((src, i) => (
-              <div key={i} className="text-[11px] p-2 rounded bg-[#0D1117] border border-[#30363D] text-[#C9D1D9]">
+              <div key={i} className="text-[11px] p-2 rounded bg-background border border-border text-[#C9D1D9]">
                 <div className="flex items-center gap-2 mb-1 flex-wrap">
                   <span className="text-[#58A6FF] font-medium break-all">{src.filename}</span>
-                  <span className="text-[#8B949E] text-[9px] uppercase px-1 py-0.5 rounded bg-[#21262D]">{src.doc_type}</span>
+                  <span className="text-muted-foreground text-[9px] uppercase px-1 py-0.5 rounded bg-[#21262D]">{src.doc_type}</span>
                   <span className="text-[#3FB950] text-[9px]">{(src.similarity * 100).toFixed(1)}% match</span>
                 </div>
-                <div className="text-[#8B949E] italic text-[10px] line-clamp-3 leading-snug break-words">{src.snippet}</div>
+                <div className="text-muted-foreground italic text-[10px] line-clamp-3 leading-snug break-words">{src.snippet}</div>
               </div>
             ))}
           </div>
         )}
 
-        <p className="text-[#8B949E]/50 text-[9px] mt-1.5 terminal-font">
+        <p className="text-muted-foreground/50 text-[9px] mt-1.5 terminal-font">
           {msg.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
         </p>
       </div>
@@ -403,8 +403,8 @@ export function ChatBot() {
                 <Sparkles className="w-4 h-4 text-[#E3000F]" style={{ filter: 'drop-shadow(0 0 6px rgba(227,0,15,0.8))' }} />
               </div>
               <div className="flex-1 min-w-0">
-                <p className="text-[#F0F6FC] font-semibold text-sm leading-none">CyberAI Assistant</p>
-                <p className="text-[#8B949E] text-[10px] mt-0.5">SOC Intelligence Agent</p>
+                <p className="text-foreground font-semibold text-sm leading-none">CyberAI Assistant</p>
+                <p className="text-muted-foreground text-[10px] mt-0.5">SOC Intelligence Agent</p>
               </div>
               <div className="flex items-center gap-1">
                 <span className="flex items-center gap-1.5 px-2 py-1 rounded-full text-[10px] text-emerald-400"
@@ -414,7 +414,7 @@ export function ChatBot() {
                 </span>
                 <button
                   onClick={() => setOpen(false)}
-                  className="p-1.5 rounded-lg text-[#8B949E] hover:text-[#F0F6FC] hover:bg-white/5 transition-colors ml-1"
+                  className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-white/5 transition-colors ml-1"
                 >
                   <Minimize2 className="w-3.5 h-3.5" />
                 </button>
@@ -473,7 +473,7 @@ export function ChatBot() {
             {/* Input bar */}
             <div className="px-3 pb-3 shrink-0">
               {uploadStatus && (
-                <div className="text-[10px] text-[#8B949E] mb-2 px-1 font-mono flex items-center justify-between">
+                <div className="text-[10px] text-muted-foreground mb-2 px-1 font-mono flex items-center justify-between">
                   <span>{uploadStatus}</span>
                   {isUploading && <span className="animate-pulse">...</span>}
                 </div>
@@ -496,7 +496,7 @@ export function ChatBot() {
                   placeholder="Ask about threats, alerts, or incidents…"
                   rows={1}
                   disabled={loading}
-                  className="flex-1 bg-transparent text-[#F0F6FC] text-sm placeholder-[#8B949E]/60 outline-none resize-none leading-relaxed disabled:opacity-50"
+                  className="flex-1 bg-transparent text-foreground text-sm placeholder-[#8B949E]/60 outline-none resize-none leading-relaxed disabled:opacity-50"
                   style={{ maxHeight: 80, minHeight: 20 }}
                   onInput={e => {
                     const t = e.currentTarget;
@@ -537,7 +537,7 @@ export function ChatBot() {
                   <Send className="w-3.5 h-3.5 text-white" />
                 </button>
               </div>
-              <p className="text-[#8B949E]/40 text-[9px] text-center mt-1.5">
+              <p className="text-muted-foreground/40 text-[9px] text-center mt-1.5">
                 Enter to send · Shift+Enter for new line
               </p>
             </div>
@@ -571,7 +571,7 @@ export function ChatBot() {
               exit={{ rotate: 90, opacity: 0 }}
               transition={{ duration: 0.15 }}
             >
-              <X className="w-5 h-5 text-[#F0F6FC]" />
+              <X className="w-5 h-5 text-foreground" />
             </motion.span>
           ) : (
             <motion.span
