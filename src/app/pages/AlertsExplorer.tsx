@@ -1,8 +1,9 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router';
 import { motion } from 'motion/react';
-import { Search, SlidersHorizontal, ChevronLeft, ChevronRight, RefreshCw, ShieldAlert, ChevronRight as ArrowRight } from 'lucide-react';
+import { Search, SlidersHorizontal, ChevronLeft, ChevronRight, RefreshCw, ShieldAlert, ChevronRight as ArrowRight, Activity, Database, Radio } from 'lucide-react';
 import { Slider } from '@/app/components/ui/slider';
+import { Switch } from '@/app/components/ui/switch';
 import { toast } from 'sonner';
 import { fetchLogs, type LogsResponse } from '../api/agent';
 import type { Alert } from '../types';
@@ -89,6 +90,7 @@ export function AlertsExplorer() {
   const navigate = useNavigate();
   const { allAlerts } = useWebSocketData();
 
+  const [liveMode, setLiveMode]       = useState(true);
   const [source, setSource]           = useState('all');
   const [status, setStatus]           = useState('all');
   const [minConf, setMinConf]         = useState(0);
@@ -120,7 +122,7 @@ export function AlertsExplorer() {
 
   // Combine fetched historical logs with real-time websocket alerts
   const combinedLogs = useMemo(() => {
-    const fetched = data?.logs ?? [];
+    const fetched = liveMode ? [] : (data?.logs ?? []);
     
     // Filter the websocket alerts to match the current search/status/source filters
     const filteredWs = allAlerts.filter(a => {
@@ -176,12 +178,27 @@ export function AlertsExplorer() {
           <span className="text-[#F0F6FC] font-semibold text-sm">Filters</span>
         </div>
 
+        {/* Live Mode Toggle */}
+        <div className="mb-6 rounded-xl p-3 flex flex-col gap-3"
+          style={{ background: 'rgba(22,27,34,0.6)', border: '1px solid rgba(48,54,61,0.8)' }}>
+          <div className="flex items-center justify-between">
+            <span className="text-sm font-semibold text-[#F0F6FC] flex items-center gap-1.5">
+              {liveMode ? <Radio className="w-4 h-4 text-[#E3000F] animate-pulse" /> : <Database className="w-4 h-4 text-[#8B949E]" />}
+              Live Feed
+            </span>
+            <Switch checked={liveMode} onCheckedChange={setLiveMode} className="data-[state=checked]:bg-[#E3000F]" />
+          </div>
+          <p className="text-[10px] text-[#8B949E] leading-relaxed">
+            {liveMode ? 'Showing only real-time simulation alerts.' : 'Showing 31,000+ historical dataset alerts.'}
+          </p>
+        </div>
+
         {/* Threat summary */}
         <div className="mb-6 rounded-xl p-3 space-y-2.5"
           style={{ background: 'rgba(227,0,15,0.06)', border: '1px solid rgba(227,0,15,0.2)' }}>
           <div className="flex justify-between text-xs">
             <span className="text-[#8B949E]">Total threats</span>
-            <span className="text-[#E3000F] terminal-font font-bold">{data?.total ?? 0}</span>
+            <span className="text-[#E3000F] terminal-font font-bold">{liveMode ? combinedLogs.length : (data?.total ?? 0)}</span>
           </div>
           <div className="flex justify-between text-xs">
             <span className="text-[#8B949E]">Critical</span>
