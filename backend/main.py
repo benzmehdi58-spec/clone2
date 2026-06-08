@@ -224,8 +224,8 @@ async def lifespan(app: FastAPI):
     try:
         from simulators import NetworkScenarioSimulator, SSHReplayEngine, UEBAReplayEngine, HDFSReplayEngine
         state["net_simulator"] = NetworkScenarioSimulator()
-        state["ssh_simulator"] = SSHReplayEngine(str(BASE_DIR / "data" / "ssh_inference_samples.txt"))
-        state["ueba_simulator"] = UEBAReplayEngine(str(BASE_DIR / "data" / "ueba_inference_results.json"))
+        state["ssh_simulator"] = SSHReplayEngine(str(_DATA_DIR / "ssh_inference_samples.txt"))
+        state["ueba_simulator"] = UEBAReplayEngine(str(_DATA_DIR / "ueba_inference_results.json"))
         state["hdfs_simulator"] = HDFSReplayEngine(state.get("hdfs_logs", []))
         state["net_stop_event"] = asyncio.Event()
         state["ssh_stop_event"] = asyncio.Event()
