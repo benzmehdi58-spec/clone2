@@ -90,8 +90,16 @@ class SSHReplayEngine:
 
 # ─── Network Scenario Simulator ──────────────────────────────────────────────────
 
+import pathlib
+_SIM_DIR = pathlib.Path(__file__).parent.resolve()
+
 class NetworkScenarioSimulator:
-    def __init__(self, parquet_path="artifacts/network/inference_set.parquet", features_path="artifacts/network/feature_cols_final.pkl"):
+    def __init__(self, parquet_path=None, features_path=None):
+        if parquet_path is None:
+            parquet_path = str(_SIM_DIR / "artifacts" / "network" / "inference_set.parquet")
+        if features_path is None:
+            features_path = str(_SIM_DIR / "artifacts" / "network" / "feature_cols_final.pkl")
+        
         self.active = False
         self.flows_sent = 0
         self.scenario = None
@@ -144,7 +152,8 @@ class NetworkScenarioSimulator:
             if "label_multi" in self.df.columns:
                 import joblib
                 try:
-                    le = joblib.load("artifacts/network/label_encoder.pkl")
+                    le_path = str(_SIM_DIR / "artifacts" / "network" / "label_encoder.pkl")
+                    le = joblib.load(le_path)
                     target_ints = [i for i, cls in enumerate(le.classes_) if cls in target_labels]
                     sub_df = self.df[self.df["label_multi"].isin(target_ints)]
                 except Exception as e:
