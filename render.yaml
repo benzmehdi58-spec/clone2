@@ -1,0 +1,11 @@
+services:
+  - type: web
+    name: cyberai-backend
+    env: python
+    buildCommand: "cd backend && pip install -r requirements.txt"
+    startCommand: "cd backend && python run_server.py"
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.0
+      - key: FACE_ENCRYPTION_KEY
+        generateValue: true

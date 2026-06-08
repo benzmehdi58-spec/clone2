@@ -1,10 +1,20 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router';
 import { motion } from 'motion/react';
-import { Shield, Eye, EyeOff, Wifi, Lock, User, AlertTriangle } from 'lucide-react';
+import { Shield, Eye, EyeOff, Wifi, Lock, User, AlertTriangle, ScanFace } from 'lucide-react';
+import { useAuth } from '../contexts/AuthContext';
+import FaceCapture from '../components/auth/FaceCapture';
 
 export function Login() {
   const navigate = useNavigate();
+  const { login, isAuthenticated } = useAuth();
+
+  useEffect(() => {
+    if (isAuthenticated) {
+      navigate('/');
+    }
+  }, [isAuthenticated, navigate]);
+
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [showPass, setShowPass] = useState(false);
@@ -12,6 +22,7 @@ export function Login() {
   const [error, setError] = useState('');
   const [mfa, setMfa] = useState(false);
   const [mfaCode, setMfaCode] = useState('');
+  const [showFaceCapture, setShowFaceCapture] = useState(false);
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -41,11 +52,39 @@ export function Login() {
     setTimeout(() => {
       setLoading(false);
       if (mfaCode === '123456' || mfaCode.length === 6) {
+        login();
         navigate('/');
       } else {
         setError('Invalid MFA code. Use any 6-digit code.');
       }
     }, 800);
+  }
+
+  const handleFaceCapture = async (descriptor: number[]) => {
+    setShowFaceCapture(false);
+    setLoading(true);
+    setError('');
+    
+    try {
+      const BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+      const response = await fetch(`${BASE_URL}/api/auth/verify`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: username || 'admin', descriptor })
+      });
+      
+      const data = await response.json();
+      if (data.match) {
+        login();
+        navigate('/');
+      } else {
+        setError('Face not recognized. Please try again.');
+      }
+    } catch (err) {
+      setError('Face verification failed to connect to server.');
+    } finally {
+      setLoading(false);
+    }
   }
 
   return (
@@ -183,6 +222,27 @@ export function Login() {
                 </button>
               </form>
 
+              <div className="mt-4 flex items-center gap-4">
+                <div className="h-px bg-border flex-1" />
+                <span className="text-xs text-muted-foreground uppercase tracking-wider font-semibold">Or</span>
+                <div className="h-px bg-border flex-1" />
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setShowFaceCapture(true)}
+                disabled={loading}
+                className="w-full py-2.5 rounded-lg text-sm font-semibold transition-all duration-200 mt-4 flex items-center justify-center gap-2"
+                style={{
+                  background: 'rgba(48,54,61,0.5)',
+                  border: '1px solid rgba(48,54,61,0.9)',
+                  color: '#C9D1D9',
+                }}
+              >
+                <ScanFace className="w-4 h-4" />
+                Login with Face ID
+              </button>
+
               <div className="mt-6 pt-5" style={{ borderTop: '1px solid rgba(48,54,61,0.6)' }}>
                 <p className="text-muted-foreground text-xs text-center">
                   Demo credentials: <span className="text-foreground font-mono">admin</span> / <span className="text-foreground font-mono">cyberai</span>
@@ -280,6 +340,14 @@ export function Login() {
           <span className="text-muted-foreground text-xs">End-to-end encrypted · SOC 2 Type II certified</span>
         </motion.div>
       </div>
+      
+      {showFaceCapture && (
+        <FaceCapture
+          mode="verify"
+          onCapture={handleFaceCapture}
+          onCancel={() => setShowFaceCapture(false)}
+        />
+      )}
     </div>
   );
 }

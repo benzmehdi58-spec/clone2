@@ -2,9 +2,10 @@ import { useState } from 'react';
 import { motion } from 'motion/react';
 import {
   Bell, Shield, Database, Cpu, Globe, Key, Save,
-  ToggleLeft, AlertTriangle, User, Lock, ChevronRight,
+  ToggleLeft, AlertTriangle, User, Lock, ChevronRight, ScanFace
 } from 'lucide-react';
 import { toast } from 'sonner';
+import FaceCapture from '../components/auth/FaceCapture';
 
 /* ─── Section wrapper ─── */
 function Section({ title, icon: Icon, children }: { title: string; icon: React.ElementType; children: React.ReactNode }) {
@@ -104,6 +105,8 @@ function SelectRow({ label, value, onChange, options }: {
 
 /* ─── Page ─── */
 export function Settings() {
+  const [showFaceEnroll, setShowFaceEnroll] = useState(false);
+
   // Notification settings
   const [notifs, setNotifs] = useState({
     criticalAlerts: true,
@@ -379,6 +382,40 @@ export function Settings() {
           </div>
         </motion.div>
 
+        {/* Face ID Settings */}
+        <motion.div
+          initial={{ opacity: 0, y: 16 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.4, delay: 0.12 }}
+          className="glass-card rounded-xl overflow-hidden lg:col-span-2"
+        >
+          <div className="flex items-center gap-3 px-5 py-4" style={{ borderBottom: '1px solid rgba(48,54,61,0.7)' }}>
+            <div className="p-1.5 rounded-lg" style={{ background: 'rgba(227,0,15,0.1)' }}>
+              <ScanFace className="w-4 h-4 text-[#E3000F]" />
+            </div>
+            <span className="text-foreground font-semibold text-sm">Biometric Authentication</span>
+          </div>
+          <div className="p-5">
+            <div className="flex items-center justify-between gap-4">
+              <div>
+                <div className="text-foreground text-sm font-medium">Enroll Face ID</div>
+                <div className="text-muted-foreground text-xs mt-0.5">Register your face for passwordless login. This runs fully locally before sending a secure descriptor to the backend.</div>
+              </div>
+              <button
+                onClick={() => setShowFaceEnroll(true)}
+                className="px-4 py-2 rounded-lg text-sm font-semibold transition-all duration-200 shrink-0"
+                style={{
+                  background: 'rgba(227,0,15,0.12)',
+                  border: '1px solid rgba(227,0,15,0.3)',
+                  color: '#E3000F',
+                }}
+              >
+                Enroll Face
+              </button>
+            </div>
+          </div>
+        </motion.div>
+
         {/* Danger Zone */}
         <motion.div
           initial={{ opacity: 0, y: 16 }}
@@ -417,6 +454,31 @@ export function Settings() {
           </div>
         </motion.div>
       </div>
+
+      {showFaceEnroll && (
+        <FaceCapture
+          mode="enroll"
+          onCapture={async (descriptor) => {
+            setShowFaceEnroll(false);
+            try {
+              const BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+              const res = await fetch(`${BASE_URL}/api/auth/enroll`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ username: 'admin', descriptor })
+              });
+              if (res.ok) {
+                toast.success('Face ID enrolled successfully!');
+              } else {
+                toast.error('Face ID enrollment failed.');
+              }
+            } catch (err) {
+              toast.error('Could not connect to server.');
+            }
+          }}
+          onCancel={() => setShowFaceEnroll(false)}
+        />
+      )}
     </div>
   );
 }

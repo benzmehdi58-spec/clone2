@@ -1,7 +1,8 @@
 import { Link, useLocation } from 'react-router';
-import { Shield, LayoutDashboard, AlertTriangle, Zap, Wifi, WifiOff, Brain, Settings, LogIn, Sun, Moon } from 'lucide-react';
+import { Shield, LayoutDashboard, AlertTriangle, Zap, Wifi, WifiOff, Brain, Settings, LogOut, Sun, Moon } from 'lucide-react';
 import { useWebSocketData } from '../../contexts/WebSocketContext';
 import { useTheme } from '../../contexts/ThemeContext';
+import { useAuth } from '../../contexts/AuthContext';
 
 const NAV = [
   { to: '/',           label: 'Dashboard',    icon: LayoutDashboard },
@@ -14,6 +15,7 @@ export function TopNav() {
   const { pathname } = useLocation();
   const { connected, allAlerts } = useWebSocketData();
   const { theme, setTheme } = useTheme();
+  const { logout } = useAuth();
   const threatCount = allAlerts.filter(
     a => a.verdict === 'ATTACK' || a.verdict === 'ZERO_DAY'
   ).length;
@@ -104,17 +106,14 @@ export function TopNav() {
           <Settings className="w-4 h-4" />
         </Link>
 
-        {/* Login icon */}
-        <Link
-          to="/login"
-          className={`flex items-center justify-center w-8 h-8 rounded-lg transition-all duration-200 ${
-            pathname === '/login'
-              ? 'bg-primary/10 text-primary border border-primary/25'
-              : 'text-muted-foreground border border-transparent hover:text-foreground'
-          }`}
+        {/* Logout icon */}
+        <button
+          onClick={logout}
+          title="Sign out"
+          className="flex items-center justify-center w-8 h-8 rounded-lg transition-all duration-200 text-muted-foreground border border-transparent hover:text-destructive hover:bg-destructive/10"
         >
-          <LogIn className="w-4 h-4" />
-        </Link>
+          <LogOut className="w-4 h-4" />
+        </button>
       </div>
     </nav>
   );

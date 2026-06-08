@@ -68,6 +68,35 @@ def init_db():
         )
     """)
     
+    # Create Users table
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT UNIQUE,
+            password_hash TEXT,
+            face_enrolled BOOLEAN DEFAULT 0
+        )
+    """)
+    
+    # Create Face Embeddings table
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS face_embeddings (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER,
+            encrypted_embedding BLOB,
+            encryption_iv BLOB,
+            encryption_tag BLOB,
+            enrolled_at TEXT,
+            last_verified_at TEXT,
+            FOREIGN KEY(user_id) REFERENCES users(id)
+        )
+    """)
+    
+    # Seed default admin user
+    cursor.execute("SELECT * FROM users WHERE username = 'admin'")
+    if not cursor.fetchone():
+        cursor.execute("INSERT INTO users (username, password_hash) VALUES ('admin', 'cyberai')")
+        
     conn.commit()
     conn.close()
 
@@ -236,10 +265,63 @@ def get_incident_by_id(incident_id: str) -> Optional[Dict[str, Any]]:
         inc["mitre"] = json.loads(inc["mitre"]) if inc["mitre"] else {}
     except:
         inc["mitre"] = {}
-        
-    try:
+            try:
         inc["raw_payload"] = json.loads(inc["raw_payload"]) if inc["raw_payload"] else {}
     except:
         inc["raw_payload"] = {}
         
     return inc
+
+# --- Auth & Face ID Helpers ---
+
+def get_user_by_username(username: str) -> Optional[Dict[str, Any]]:
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM users WHERE username = ?", (username,))
+    row = cursor.fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+def upsert_face_embedding(user_id: int, encrypted_embedding: bytes, iv: bytes, tag: bytes):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    
+    # Check if exists
+    cursor.execute("SELECT id FROM face_embeddings WHERE user_id = ?", (user_id,))
+    existing = cursor.fetchone()
+    
+    from datetime import datetime, timezone
+    now = datetime.now(timezone.utc).isoformat()
+    
+    if existing:
+        cursor.execute("""
+            UPDATE face_embeddings
+            SET encrypted_embedding = ?, encryption_iv = ?, encryption_tag = ?, enrolled_at = ?
+            WHERE user_id = ?
+        """, (encrypted_embedding, iv, tag, now, user_id))
+    else:
+        cursor.execute("""
+            INSERT INTO face_embeddings (user_id, encrypted_embedding, encryption_iv, encryption_tag, enrolled_at)
+            VALUES (?, ?, ?, ?, ?)
+        """, (user_id, encrypted_embedding, iv, tag, now))
+        
+    cursor.execute("UPDATE users SET face_enrolled = 1 WHERE id = ?", (user_id,))
+    conn.commit()
+    conn.close()
+
+def get_face_embedding(user_id: int) -> Optional[Dict[str, Any]]:
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM face_embeddings WHERE user_id = ?", (user_id,))
+    row = cursor.fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+def update_last_verified(user_id: int):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    from datetime import datetime, timezone
+    now = datetime.now(timezone.utc).isoformat()
+    cursor.execute("UPDATE face_embeddings SET last_verified_at = ? WHERE user_id = ?", (now, user_id))
+    conn.commit()
+    conn.close()

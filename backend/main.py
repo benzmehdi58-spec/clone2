@@ -38,7 +38,14 @@ mitre_mapper = MITREMapper()
 from fastapi import FastAPI, Query, HTTPException, BackgroundTasks, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
+from typing import List, Optional
 import database
+import face_auth
+
+class FaceDescriptor(BaseModel):
+    username: str
+    descriptor: List[float]
+    
 # ─── Paths ──────────────────────────────────────────────────────────────────
 _HERE    = Path(__file__).parent          # /app in Docker | .../backend locally
 _ROOT    = _HERE.parent                   # /   in Docker  | project root locally
@@ -1478,6 +1485,27 @@ async def start_hdfs_sim(req: HdfsSimRequest, background_tasks: BackgroundTasks,
 
     background_tasks.add_task(sim.start, hdfs_callback, state["hdfs_stop_event"])
     return {"status": "started"}
+
+@app.post("/api/auth/enroll")
+async def enroll_face_endpoint(data: FaceDescriptor):
+    try:
+        success = face_auth.enroll_face(data.username, data.descriptor)
+        if success:
+            return {"status": "success", "message": "Face enrolled successfully"}
+        raise HTTPException(status_code=400, detail="Enrollment failed")
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+        
+@app.post("/api/auth/verify")
+async def verify_face_endpoint(data: FaceDescriptor):
+    try:
+        match = face_auth.verify_face(data.username, data.descriptor)
+        if match:
+            return {"status": "success", "match": True}
+        else:
+            return {"status": "success", "match": False, "message": "Face not recognized"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/api/simulate/hdfs/stop")
 async def stop_hdfs_sim():
