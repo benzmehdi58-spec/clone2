@@ -1,12 +1,13 @@
 import { Link, useLocation } from 'react-router';
-import { Shield, LayoutDashboard, AlertTriangle, Zap, Wifi, WifiOff, Brain, Settings, LogOut, Sun, Moon } from 'lucide-react';
+import { Shield, LayoutDashboard, AlertTriangle, ShieldAlert, Terminal, Zap, Wifi, WifiOff, Brain, Settings, LogOut, Sun, Moon } from 'lucide-react';
 import { useWebSocketData } from '../../contexts/WebSocketContext';
 import { useTheme } from '../../contexts/ThemeContext';
 import { useAuth } from '../../contexts/AuthContext';
 
 const NAV = [
-  { to: '/',           label: 'Dashboard',    icon: LayoutDashboard },
-  { to: '/alerts',     label: 'Alerts',        icon: AlertTriangle },
+  { to: '/',           label: 'Dashboard',     icon: LayoutDashboard },
+  { to: '/logs',       label: 'Log Explorer',  icon: Terminal },
+  { to: '/alerts',     label: 'Active Alerts', icon: ShieldAlert },
   { to: '/simulation', label: 'Simulation',    icon: Zap },
   { to: '/models',     label: 'ML Models',     icon: Brain },
 ];

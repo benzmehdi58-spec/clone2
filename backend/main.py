@@ -573,7 +573,9 @@ def get_logs(
         filtered = [l for l in filtered if s in l.get("block_id", "").lower() or s in l.get("session_key", "").lower() or s in l.get("preview", "").lower()]
     if status and status.lower() != "all":
         s_val = status.upper()
-        if s_val in ("ATTACK", "BENIGN", "ZERO_DAY", "THREAT"):
+        if s_val == "THREATS_ONLY":
+            filtered = [l for l in filtered if l.get("verdict", "").upper() in ("ATTACK", "ZERO_DAY", "THREAT")]
+        elif s_val in ("ATTACK", "BENIGN", "ZERO_DAY", "THREAT"):
             filtered = [l for l in filtered if l.get("verdict", "").upper() == s_val]
         else:
             target = "Anomaly" if status.lower() == "anomaly" else "Normal"

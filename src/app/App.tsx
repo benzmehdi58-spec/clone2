@@ -6,6 +6,7 @@ import { AppShell } from './components/layout/AppShell';
 import { ProtectedRoute } from './components/ProtectedRoute';
 import { Dashboard } from './pages/Dashboard';
 import { AlertsExplorer } from './pages/AlertsExplorer';
+import { LogExplorer } from './pages/LogExplorer';
 import { AlertDetail } from './pages/AlertDetail';
 import { LiveSimulation } from './pages/LiveSimulation';
 import { ModelPerformance } from './pages/ModelPerformance';
@@ -24,6 +25,7 @@ export default function App() {
               <Route element={<ProtectedRoute />}>
                 <Route element={<AppShell />}>
                   <Route index element={<Dashboard />} />
+                  <Route path="logs" element={<LogExplorer />} />
                   <Route path="alerts" element={<AlertsExplorer />} />
                   <Route path="alerts/:id" element={<AlertDetail />} />
                   <Route path="simulation" element={<LiveSimulation />} />

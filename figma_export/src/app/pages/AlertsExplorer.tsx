@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router';
 import { motion } from 'motion/react';
 import { Search, SlidersHorizontal, ChevronLeft, ChevronRight, RefreshCw, ShieldAlert, ChevronRight as ArrowRight } from 'lucide-react';
@@ -6,7 +6,6 @@ import { Slider } from '@/app/components/ui/slider';
 import { toast } from 'sonner';
 import { fetchLogs, type LogsResponse } from '../api/agent';
 import type { Alert } from '../types';
-import { useWebSocketData } from '../contexts/WebSocketContext';
 
 /* ─── Verdict badge ─── */
 function VerdictBadge({ verdict }: { verdict?: string }) {
@@ -14,7 +13,6 @@ function VerdictBadge({ verdict }: { verdict?: string }) {
   const s: Record<string, { bg: string; color: string; border: string }> = {
     ATTACK:   { bg: 'rgba(227,0,15,0.14)',    color: '#E3000F', border: 'rgba(227,0,15,0.35)' },
     ZERO_DAY: { bg: 'rgba(167,139,250,0.14)', color: '#A78BFA', border: 'rgba(167,139,250,0.35)' },
-    THREAT:   { bg: 'rgba(249,115,22,0.14)',  color: '#F97316', border: 'rgba(249,115,22,0.35)' },
   };
   const v = s[verdict] ?? { bg: 'rgba(48,54,61,0.5)', color: '#8B949E', border: '#30363D' };
   return (
@@ -76,18 +74,15 @@ const SOURCE_OPTS = [
   { value: 'SSH',     label: 'SSH Auth' },
   { value: 'UEBA',    label: 'UEBA Insider' },
   { value: 'Network', label: 'Network Flows' },
-  { value: 'HDFS',    label: 'HDFS System' },
 ];
 const VERDICT_OPTS = [
   { value: 'all',      label: 'All Threats' },
   { value: 'ATTACK',   label: 'ATTACK' },
   { value: 'ZERO_DAY', label: 'ZERO-DAY' },
-  { value: 'THREAT',   label: 'THREAT' },
 ];
 
 export function AlertsExplorer() {
   const navigate = useNavigate();
-  const { allAlerts } = useWebSocketData();
 
   const [source, setSource]           = useState('all');
   const [status, setStatus]           = useState('all');
@@ -109,8 +104,8 @@ export function AlertsExplorer() {
   const loadData = useCallback(() => {
     setLoading(true);
     setError(null);
-    // Alerts page fetches threats only. We will use a special backend filter 'THREATS_ONLY'
-    const effectiveStatus = status === 'all' ? 'THREATS_ONLY' : status;
+    // Alerts page always fetches threats only
+    const effectiveStatus = status === 'all' ? 'ATTACK' : status;
     fetchLogs({ page, limit: 20, search, status: effectiveStatus, source })
       .then(res => { setData(res); setLoading(false); })
       .catch(e  => { setError(e.message); setLoading(false); });
@@ -118,48 +113,8 @@ export function AlertsExplorer() {
 
   useEffect(() => { loadData(); }, [loadData]);
 
-  // Combine fetched historical logs with real-time websocket alerts
-  const combinedLogs = useMemo(() => {
-    const fetched = data?.logs ?? [];
-    
-    // Filter the websocket alerts to match the current search/status/source filters
-    const filteredWs = allAlerts.filter(a => {
-      // Must be a threat to appear on the Alerts page
-      if (!['ATTACK', 'ZERO_DAY', 'THREAT'].includes(a.verdict || '')) return false;
-      
-      // Match source
-      if (source !== 'all' && (a.source || '').toLowerCase() !== source.toLowerCase()) return false;
-      
-      // Match status
-      if (status !== 'all' && (a.verdict || '').toLowerCase() !== status.toLowerCase()) return false;
-      
-      // Match search
-      if (search) {
-        const s = search.toLowerCase();
-        if (!a.id?.toLowerCase().includes(s) && !a.title?.toLowerCase().includes(s) && !a.reason?.toLowerCase().includes(s)) {
-          return false;
-        }
-      }
-      return true;
-    });
-
-    // Merge them, prioritizing new WS alerts, avoiding duplicates by ID
-    const merged = [...filteredWs];
-    const wsIds = new Set(filteredWs.map(a => a.id));
-    for (const log of fetched) {
-      if (!wsIds.has(log.id)) {
-        merged.push(log);
-      }
-    }
-    
-    // Sort combined array by confidence descending, then by time descending
-    return merged.sort((a, b) => {
-      if (b.confidence !== a.confidence) return b.confidence - a.confidence;
-      return new Date(b.time || 0).getTime() - new Date(a.time || 0).getTime();
-    });
-  }, [data?.logs, allAlerts, source, status, search]);
-
-  const rows: Alert[] = combinedLogs.filter(a => a.confidence >= minConf);
+  const rows: Alert[] = (data?.logs ?? [])
+    .filter(a => (a.verdict === 'ATTACK' || a.verdict === 'ZERO_DAY') && a.confidence >= minConf);
 
   const criticalCount = rows.filter(a => a.severity === 'critical').length;
   const zeroDayCount  = rows.filter(a => a.verdict === 'ZERO_DAY').length;

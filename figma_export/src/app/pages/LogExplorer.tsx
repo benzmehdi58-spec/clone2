@@ -12,7 +12,6 @@ function VerdictPill({ verdict }: { verdict?: string }) {
     ATTACK:   { bg: 'rgba(227,0,15,0.15)',   color: '#E3000F' },
     BENIGN:   { bg: 'rgba(52,211,153,0.12)', color: '#34D399' },
     ZERO_DAY: { bg: 'rgba(167,139,250,0.12)', color: '#A78BFA' },
-    THREAT:   { bg: 'rgba(249,115,22,0.12)', color: '#F97316' },
   };
   const s = styles[verdict] ?? { bg: 'rgba(48,54,61,0.5)', color: '#8B949E' };
   return (
@@ -30,7 +29,6 @@ const SOURCE_COLORS: Record<string, { color: string; bg: string }> = {
   SSH:     { color: '#4DABF7', bg: 'rgba(77,171,247,0.1)' },
   UEBA:    { color: '#9775FA', bg: 'rgba(151,117,250,0.1)' },
   Network: { color: '#51CF66', bg: 'rgba(81,207,102,0.1)' },
-  HDFS:    { color: '#D29922', bg: 'rgba(210,153,34,0.1)' },
 };
 function SourceTag({ source }: { source: string }) {
   const s = SOURCE_COLORS[source] ?? { color: '#8B949E', bg: 'rgba(48,54,61,0.3)' };
@@ -58,13 +56,12 @@ function ConfBar({ value }: { value: number }) {
   );
 }
 
-const SOURCES = ['SSH', 'UEBA', 'Network', 'HDFS'] as const;
+const SOURCES = ['SSH', 'UEBA', 'Network'] as const;
 const VERDICT_OPTS = [
   { value: 'all',      label: 'All Logs' },
   { value: 'BENIGN',   label: 'Benign' },
   { value: 'ATTACK',   label: 'Attack' },
   { value: 'ZERO_DAY', label: 'Zero-Day' },
-  { value: 'THREAT',   label: 'Threat' },
 ];
 
 export function LogExplorer() {
@@ -97,7 +94,7 @@ export function LogExplorer() {
 
   const rows: Alert[] = (data?.logs ?? []).filter(a => a.confidence >= minConf);
   const totalBenign = (data?.logs ?? []).filter(a => a.verdict === 'BENIGN').length;
-  const totalAttack = (data?.logs ?? []).filter(a => ['ATTACK', 'ZERO_DAY', 'THREAT'].includes(a.verdict || '')).length;
+  const totalAttack = (data?.logs ?? []).filter(a => a.verdict === 'ATTACK' || a.verdict === 'ZERO_DAY').length;
 
   const exportCsv = () => {
     if (!data?.logs.length) return;
@@ -145,7 +142,7 @@ export function LogExplorer() {
           <p className="text-[#8B949E] text-[10px] font-medium uppercase tracking-widest mb-3">Source</p>
           {[{ value: 'all', label: 'All Sources' }, ...SOURCES.map(s => ({
             value: s,
-            label: s === 'SSH' ? 'SSH Auth' : s === 'UEBA' ? 'UEBA Behavioral' : s === 'Network' ? 'Network Flows' : 'HDFS System',
+            label: s === 'SSH' ? 'SSH Auth' : s === 'UEBA' ? 'UEBA Behavioral' : 'Network Flows',
           }))].map(opt => (
             <label key={opt.value} className="flex items-center gap-2.5 mb-2.5 cursor-pointer group">
               <input
