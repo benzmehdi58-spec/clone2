@@ -12,20 +12,23 @@ import { MetricCard } from '../components/MetricCard';
 import { NetworkCanvas } from '../components/NetworkCanvas';
 import type { Alert } from '../types';
 
-/* ─── Terminal feed component ─── */
 function TerminalFeed({
   title,
   lines,
   colorFn,
+  autoScroll = true,
 }: {
   title: string;
   lines: string[];
   colorFn: (line: string) => string;
+  autoScroll?: boolean;
 }) {
-  const endRef = useRef<HTMLDivElement>(null);
+  const bodyRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    endRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [lines]);
+    if (autoScroll && bodyRef.current) {
+      bodyRef.current.scrollTop = bodyRef.current.scrollHeight;
+    }
+  }, [lines, autoScroll]);
 
   return (
     <div className="glass-card rounded-xl overflow-hidden flex flex-col h-56">
@@ -41,13 +44,12 @@ function TerminalFeed({
         <span className="ml-auto w-1.5 h-3 bg-[#8B949E] animate-blink rounded-sm" />
       </div>
       {/* Feed body */}
-      <div className="flex-1 overflow-y-auto p-3" style={{ background: 'rgba(9,12,16,0.7)' }}>
+      <div ref={bodyRef} className="flex-1 overflow-y-auto p-3" style={{ background: 'rgba(9,12,16,0.7)' }}>
         {lines.map((line, i) => (
           <div key={i} className="terminal-font text-[11px] leading-5" style={{ color: colorFn(line) }}>
             {line}
           </div>
         ))}
-        <div ref={endRef} />
       </div>
     </div>
   );
@@ -242,24 +244,28 @@ export function LiveSimulation() {
           style={{ borderBottom: '1px solid rgba(48,54,61,0.6)' }}>
           <div className="flex items-center gap-2.5">
             <div className="w-2 h-2 rounded-full bg-[#E3000F] animate-pulse-red" />
-            <span className="text-foreground font-semibold text-sm">AI Data Pipeline — WebGL Inference Core</span>
+            <span className="text-[#F0F6FC] font-semibold text-sm">AI Data Pipeline — Multi-Stage Inference Core</span>
           </div>
-          <div className="flex items-center gap-4 text-[10px] text-muted-foreground">
-            <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-[#A8D5FF]/70 inline-block" /> BENIGN</span>
-            <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-[#E3000F] inline-block" /> ATTACK</span>
-            <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-[#9775FA] inline-block" /> UEBA</span>
+          <div className="flex items-center gap-3 text-[10px] text-[#8B949E]">
+            <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-[#51CF66] inline-block" />BENIGN</span>
+            <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-[#E3000F] inline-block" />BRUTE FORCE</span>
+            <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-[#F97316] inline-block" />DDoS</span>
+            <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-[#9775FA] inline-block" />EXFIL</span>
+            <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-[#FBBF24] inline-block" />ZERO-DAY</span>
           </div>
         </div>
         <div style={{ background: 'rgba(9,12,16,0.6)' }}>
-          <NetworkCanvas alerts={allAlerts} height={300} />
+          <NetworkCanvas alerts={allAlerts} height={390} />
         </div>
-        <div className="px-5 py-2.5 flex items-center gap-6 text-[10px] text-muted-foreground"
+        <div className="px-5 py-2.5 flex items-center gap-6 text-[10px] text-[#8B949E]"
           style={{ borderTop: '1px solid rgba(48,54,61,0.5)', background: 'rgba(13,17,23,0.4)' }}>
-          <span>SSH Auth <span className="text-[#4DABF7] font-semibold">{sshAlerts.length}</span></span>
-          <span>UEBA <span className="text-[#9775FA] font-semibold">{uebaAlerts.length}</span></span>
-          <span>Network <span className="text-[#51CF66] font-semibold">{networkAlerts.length}</span></span>
-          <span>HDFS <span className="text-[#D29922] font-semibold">{hdfsAlerts.length}</span></span>
-          <span className="ml-auto">Particles represent individual log inferences flowing through the AI core</span>
+          <span>SSH → <span className="text-[#4DABF7] font-medium">Bi-LSTM</span></span>
+          <span>UEBA → <span className="text-[#9775FA] font-medium">CNN-BiLSTM</span></span>
+          <span>Net → <span className="text-[#51CF66] font-medium">LGBM</span> → <span className="text-[#F59E0B] font-medium">XGB</span> → <span className="text-[#EC4899] font-medium">PyTorch</span></span>
+          <span>HDFS → <span className="text-[#D29922] font-medium">IsoForest</span></span>
+          <span className="text-[#30363D]">→</span>
+          <span><span className="text-[#00D4FF] font-medium">LangChain</span> agent</span>
+          <span className="ml-auto opacity-60">Hover nodes for details · Click source nodes to inject packets</span>
         </div>
       </motion.div>
 
@@ -318,6 +324,7 @@ export function LiveSimulation() {
             title="raw_logs.stream"
             lines={feedLines.map(formatRaw)}
             colorFn={() => '#A8D5FF'}
+            autoScroll={false}
           />
         </motion.div>
         <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.6 }}>
