@@ -59,7 +59,7 @@ export function CommandPalette() {
           </CommandItem>
           <CommandItem onSelect={() => runCommand(() => navigate('/models'))}>
             <Brain className="mr-2 h-4 w-4" />
-            <span>ML Models</span>
+            <span>Models</span>
           </CommandItem>
           <CommandItem onSelect={() => runCommand(() => navigate('/settings'))}>
             <Settings className="mr-2 h-4 w-4" />
