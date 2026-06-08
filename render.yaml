@@ -2,7 +2,7 @@ services:
   - type: web
     name: cyberai-frontend
     env: static
-    buildCommand: "npm install -g pnpm && pnpm install && pnpm build"
+    buildCommand: "npm install -g pnpm && pnpm install --no-frozen-lockfile && pnpm build"
     staticPublishPath: "./dist"
     routes:
       - type: rewrite
